@@ -1,6 +1,12 @@
 <?php
 // app/config/database.php
 
+// --- Configuración para mostrar errores en desarrollo ---
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+// -----------------------------------------------------
+
 // Define las constantes para la conexión a la base de datos
 define('DB_HOST', 'localhost'); // El host de tu base de datos (normalmente 'localhost' en XAMPP)
 define('DB_USER', 'david');     // Tu usuario de MySQL (por defecto 'root' en XAMPP)
