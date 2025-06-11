@@ -1,5 +1,5 @@
 <?php
-// public/solicitar_vehiculo.php - CÓDIGO CON ESTRUCTURA CORREGIDA PARA PHP Y HTML
+// public/solicitar_vehiculo.php - CÓDIGO COMPLETO Y ACTUALIZADO (Mostrar Todos los Vehículos en el Dropdown)
 session_start();
 require_once '../app/config/database.php';
 
@@ -26,34 +26,38 @@ $destino = '';
 $db = connectDB();
 $vehiculos_flotilla = []; // Para el dropdown de vehículos
 
-// Obtener lista de vehículos para el dropdown
+// Obtener lista de TODOS los vehículos para el dropdown, sin importar su estatus actual.
+// La disponibilidad detallada (por fechas de solicitudes) se mostrará en el widget de la derecha.
 if ($db) {
     try {
-        $stmt_vehiculos = $db->query("SELECT id, marca, modelo, placas FROM vehiculos WHERE estatus IN ('disponible', 'en_mantenimiento') ORDER BY marca, modelo");
+        $stmt_vehiculos = $db->query("SELECT id, marca, modelo, placas FROM vehiculos ORDER BY marca, modelo"); // <<-- CAMBIO AQUÍ: YA NO FILTRA POR ESTATUS
         $vehiculos_flotilla = $stmt_vehiculos->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
         error_log("Error al cargar vehículos para solicitud: " . $e->getMessage());
-        $error_message = 'No se pudieron cargar los vehículos disponibles: ' . $e->getMessage();
+        $error_message = 'No se pudieron cargar los vehículos disponibles.';
     }
 }
 
 
-// --- LÓGICA PARA PROCESAR EL FORMULARIO (Manejo de POST) ---
-// Este bloque PHP DEBE CERRARSE ANTES DE QUE INICIE EL HTML DE LA PÁGINA
+// Lógica para procesar la solicitud cuando se envía el formulario
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $selected_vehiculo_id = filter_var($_POST['vehiculo_id'] ?? null, FILTER_VALIDATE_INT);
+    $selected_vehiculo_id = filter_var($_POST['vehiculo_id'] ?? null, FILTER_VALIDATE_INT); // Obtener el ID del vehículo seleccionado
     $fecha_salida_solicitada = trim($_POST['fecha_salida_solicitada'] ?? '');
     $fecha_regreso_solicitada = trim($_POST['fecha_regreso_solicitada'] ?? '');
     $proposito = trim($_POST['proposito'] ?? '');
     $destino = trim($_POST['destino'] ?? '');
 
+    // Validación de los campos, ahora incluyendo el vehículo
     if (empty($selected_vehiculo_id) || empty($fecha_salida_solicitada) || empty($fecha_regreso_solicitada) || empty($proposito) || empty($destino)) {
         $error_message = 'Por favor, completa todos los campos requeridos, incluyendo la selección del vehículo.';
     } elseif (strtotime($fecha_salida_solicitada) >= strtotime($fecha_regreso_solicitada)) {
         $error_message = 'La fecha y hora de regreso deben ser posteriores a la fecha y hora de salida.';
     } else {
+        // **Validación de Disponibilidad Final (en el servidor) antes de insertar**
+        // Re-verificar la disponibilidad para evitar que alguien envíe la solicitud si el auto se ocupó justo antes.
         if ($db) {
             try {
+                // Verificar si el vehículo ya está ocupado en el rango de fechas solicitado
                 $stmt_overlap = $db->prepare("
                     SELECT COUNT(*) FROM solicitudes_vehiculos
                     WHERE vehiculo_id = :vehiculo_id
@@ -70,6 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($stmt_overlap->fetchColumn() > 0) {
                     $error_message = 'El vehículo seleccionado NO está disponible en las fechas que has elegido. Por favor, revisa la disponibilidad y selecciona otras fechas o vehículo.';
                 } else {
+                    // Si todo está bien, insertar la solicitud
                     $stmt = $db->prepare("INSERT INTO solicitudes_vehiculos (usuario_id, vehiculo_id, fecha_salida_solicitada, fecha_regreso_solicitada, proposito, destino) VALUES (:usuario_id, :vehiculo_id, :fecha_salida, :fecha_regreso, :proposito, :destino)");
                     $stmt->bindParam(':usuario_id', $user_id);
                     $stmt->bindParam(':vehiculo_id', $selected_vehiculo_id);
@@ -79,8 +84,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt->bindParam(':destino', $destino);
                     $stmt->execute();
 
-                    $success_message = '¡Tu solicitud ha sido enviada con éxito! Espera la aprobación. Vehículo: ' . htmlspecialchars($_POST['vehiculo_info_display'] ?? '');
+                    $success_message = '¡Tu solicitud ha sido enviada con éxito! Espera la aprobación. Vehículo: ' . htmlspecialchars($_POST['vehiculo_info_display'] ?? ''); 
                     
+                    // Limpiar los campos del formulario después de una solicitud exitosa
                     $selected_vehiculo_id = '';
                     $fecha_salida_solicitada = '';
                     $fecha_regreso_solicitada = '';
@@ -96,8 +102,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 }
-// --- FIN DEL BLOQUE PHP DE PROCESAMIENTO ---
-// TODO EL HTML Y JAVASCRIPT SIGUEN DESPUÉS DE ESTE CIERRE DE PHP
 ?>
 
 <!DOCTYPE html>

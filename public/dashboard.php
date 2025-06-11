@@ -1,5 +1,5 @@
 <?php
-// public/dashboard.php - CÓDIGO COMPLETO Y ACTUALIZADO
+// public/dashboard.php - CÓDIGO COMPLETO Y ACTUALIZADO (Conteo Simple de Vehículos Disponibles)
 session_start(); // Siempre inicia la sesión al principio
 
 // Incluye el archivo de conexión a la base de datos
@@ -15,19 +15,22 @@ if (!isset($_SESSION['user_id'])) {
 // Datos del usuario logueado (los obtuvimos del login y los guardamos en la sesión)
 $nombre_usuario = $_SESSION['user_name'] ?? 'Usuario';
 $rol_usuario = $_SESSION['user_role'] ?? 'empleado'; // Por si acaso no se definió el rol
-$nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
-$rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
 
 // Lógica para conectar a la BD y obtener datos del dashboard
 $db = connectDB();
 $vehiculos_disponibles_count = 0;
 $mis_solicitudes_pendientes_count = 0;
-$solicitudes_por_aprobar_count = 0; // Variable para el conteo de solicitudes pendientes para managers/admin
+$solicitudes_por_aprobar_count = 0;
 
 if ($db) {
     try {
-        // Contar vehículos disponibles
-        $stmt_vehiculos = $db->prepare("SELECT COUNT(*) FROM vehiculos WHERE estatus = 'disponible'");
+        // LÓGICA SIMPLIFICADA PARA EL CONTADOR DE VEHÍCULOS DISPONIBLES EN EL DASHBOARD:
+        // Solo cuenta los vehículos cuyo estatus en la tabla 'vehiculos' es directamente 'disponible'.
+        // No considera si tienen solicitudes aprobadas para el momento actual.
+        // Se actualizará cuando el estatus del vehículo cambie al marcar salida/regreso.
+        $stmt_vehiculos = $db->prepare("
+            SELECT COUNT(*) FROM vehiculos WHERE estatus = 'disponible'
+        ");
         $stmt_vehiculos->execute();
         $vehiculos_disponibles_count = $stmt_vehiculos->fetchColumn();
 
@@ -37,7 +40,7 @@ if ($db) {
         $stmt_mis_solicitudes->execute();
         $mis_solicitudes_pendientes_count = $stmt_mis_solicitudes->fetchColumn();
 
-        // NUEVO: Contar solicitudes pendientes para aprobar (solo si es flotilla_manager o admin)
+        // Contar solicitudes pendientes para aprobar (solo si es flotilla_manager o admin)
         if ($rol_usuario === 'flotilla_manager' || $rol_usuario === 'admin') {
             $stmt_por_aprobar = $db->prepare("SELECT COUNT(*) FROM solicitudes_vehiculos WHERE estatus_solicitud = 'pendiente'");
             $stmt_por_aprobar->execute();
@@ -62,7 +65,12 @@ if ($db) {
     <link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/main.min.css' rel='stylesheet' />
 </head>
 <body>
-<?php require_once '../app/includes/navbar.php'; // Incluir la barra de navegación ?>
+    <?php
+    // Asegúrate de definir estas variables ANTES de incluir la navbar
+    $nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
+    $rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
+    require_once '../app/includes/navbar.php'; // Incluir la barra de navegación
+    ?>
 
     <div class="container mt-4">
         <h1 class="mb-4">Bienvenido al Dashboard, <?php echo htmlspecialchars($nombre_usuario); ?></h1>
