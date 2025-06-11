@@ -15,6 +15,8 @@ if (!isset($_SESSION['user_id'])) {
 // Datos del usuario logueado (los obtuvimos del login y los guardamos en la sesión)
 $nombre_usuario = $_SESSION['user_name'] ?? 'Usuario';
 $rol_usuario = $_SESSION['user_role'] ?? 'empleado'; // Por si acaso no se definió el rol
+$nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
+$rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
 
 // Lógica para conectar a la BD y obtener datos del dashboard
 $db = connectDB();
@@ -60,58 +62,7 @@ if ($db) {
     <link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/main.min.css' rel='stylesheet' />
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container-fluid">
-            <a class="navbar-brand" href="dashboard.php">Flotilla Interna</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                    <li class="nav-item">
-                        <a class="nav-link active" aria-current="page" href="dashboard.php">Dashboard</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="solicitar_vehiculo.php">Solicitar Vehículo</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="mis_solicitudes.php">Mis Solicitudes</a>
-                    </li>
-                    <?php if ($rol_usuario === 'flotilla_manager' || $rol_usuario === 'admin'): ?>
-                        <li class="nav-item">
-                            <a class="nav-link" href="gestion_vehiculos.php">Gestión de Vehículos</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="gestion_solicitudes.php">Gestión de Solicitudes</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="gestion_mantenimientos.php">Gestión de Mantenimientos</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="reportes.php">Reportes</a>
-                        </li>
-                    <?php endif; ?>
-                    <?php if ($rol_usuario === 'admin'): ?>
-                        <li class="nav-item">
-                            <a class="nav-link" href="gestion_usuarios.php">Gestión de Usuarios</a>
-                        </li>
-                    <?php endif; ?>
-                </ul>
-                <ul class="navbar-nav">
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            Hola, <?php echo htmlspecialchars($nombre_usuario); ?> (<?php echo htmlspecialchars($rol_usuario); ?>)
-                        </a>
-                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
-                            <li><a class="dropdown-item" href="#">Mi Perfil (próximamente)</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="logout.php">Cerrar Sesión</a></li>
-                        </ul>
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </nav>
+<?php require_once '../app/includes/navbar.php'; // Incluir la barra de navegación ?>
 
     <div class="container mt-4">
         <h1 class="mb-4">Bienvenido al Dashboard, <?php echo htmlspecialchars($nombre_usuario); ?></h1>
