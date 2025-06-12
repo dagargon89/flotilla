@@ -1,5 +1,5 @@
 <?php
-// public/gestion_solicitudes.php - CÓDIGO COMPLETO Y ACTUALIZADO (Con EVENTO y DESCRIPCION)
+// public/gestion_solicitudes.php - CÓDIGO COMPLETO Y ACTUALIZADO (Estilos de botones)
 session_start();
 require_once '../app/config/database.php';
 
@@ -109,8 +109,8 @@ if ($db) {
                 u.nombre AS usuario_nombre,
                 s.fecha_salida_solicitada,
                 s.fecha_regreso_solicitada,
-                s.evento,             /* <<-- NUEVO */
-                s.descripcion,        /* <<-- RENOMBRADO */
+                s.evento,
+                s.descripcion,
                 s.destino,
                 s.estatus_solicitud,
                 s.observaciones_aprobacion,
@@ -202,7 +202,7 @@ if ($db) {
                                 <td>
                                     <?php if ($solicitud['marca']): ?>
                                         <?php echo htmlspecialchars($solicitud['marca'] . ' ' . $solicitud['modelo'] . ' (' . $solicitud['placas'] . ')'); ?>
-                                    <?php else: ?>
+                                    <? else: ?>
                                         <span class="text-muted">Sin asignar</span>
                                     <?php endif; ?>
                                 </td>
@@ -234,28 +234,31 @@ if ($db) {
                                 </td>
                                 <td>
                                     <?php if ($solicitud['estatus_solicitud'] === 'pendiente'): ?>
-                                        <button type="button" class="btn btn-success btn-sm me-1" data-bs-toggle="modal" data-bs-target="#approveRejectModal"
-                                            data-solicitud-id="<?php echo $solicitud['solicitud_id']; ?>" data-action="aprobar"
-                                            data-usuario="<?php echo htmlspecialchars($solicitud['usuario_nombre']); ?>"
-                                            data-salida="<?php echo htmlspecialchars($solicitud['fecha_salida_solicitada']); ?>"
-                                            data-regreso="<?php echo htmlspecialchars($solicitud['fecha_regreso_solicitada']); ?>"
-                                            data-observaciones-aprobacion="<?php echo htmlspecialchars($solicitud['observaciones_aprobacion']); ?>"
-                                            data-vehiculo-actual-id="<?php echo htmlspecialchars($solicitud['vehiculo_actual_id']); ?>">
-                                            Aprobar
-                                        </button>
-                                        <button type="button" class="btn btn-danger btn-sm" data-bs-toggle="modal" data-bs-target="#approveRejectModal"
-                                            data-solicitud-id="<?php echo $solicitud['solicitud_id']; ?>" data-action="rechazar"
-                                            data-usuario="<?php echo htmlspecialchars($solicitud['usuario_nombre']); ?>"
-                                            data-observaciones-aprobacion="<?php echo htmlspecialchars($solicitud['observaciones_aprobacion']); ?>">
-                                            Rechazar
-                                        </button>
+                                        <div class="d-flex flex-column flex-md-row gap-1"> <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#approveRejectModal"
+                                                data-solicitud-id="<?php echo $solicitud['solicitud_id']; ?>" data-action="aprobar"
+                                                data-usuario="<?php echo htmlspecialchars($solicitud['usuario_nombre']); ?>"
+                                                data-salida="<?php echo htmlspecialchars($solicitud['fecha_salida_solicitada']); ?>"
+                                                data-regreso="<?php echo htmlspecialchars($solicitud['fecha_regreso_solicitada']); ?>"
+                                                data-observaciones-aprobacion="<?php echo htmlspecialchars($solicitud['observaciones_aprobacion']); ?>"
+                                                data-vehiculo-actual-id="<?php echo htmlspecialchars($solicitud['vehiculo_actual_id']); ?>">
+                                                Aprobar
+                                            </button>
+                                            <button type="button" class="btn btn-danger btn-sm" data-bs-toggle="modal" data-bs-target="#approveRejectModal"
+                                                data-solicitud-id="<?php echo $solicitud['solicitud_id']; ?>" data-action="rechazar"
+                                                data-usuario="<?php echo htmlspecialchars($solicitud['usuario_nombre']); ?>"
+                                                data-observaciones-aprobacion="<?php echo htmlspecialchars($solicitud['observaciones_aprobacion']); ?>">
+                                                Rechazar
+                                            </button>
+                                        </div>
                                     <?php else: ?>
                                         <button type="button" class="btn btn-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#viewDetailsModal"
                                             data-solicitud-id="<?php echo $solicitud['solicitud_id']; ?>"
                                             data-usuario="<?php echo htmlspecialchars($solicitud['usuario_nombre']); ?>"
                                             data-salida="<?php echo htmlspecialchars($solicitud['fecha_salida_solicitada']); ?>"
                                             data-regreso="<?php echo htmlspecialchars($solicitud['fecha_regreso_solicitada']); ?>"
-                                            data-evento="<?php echo htmlspecialchars($solicitud['evento']); ?>" data-descripcion="<?php echo htmlspecialchars($solicitud['descripcion']); ?>" data-destino="<?php echo htmlspecialchars($solicitud['destino']); ?>"
+                                            data-evento="<?php echo htmlspecialchars($solicitud['evento']); ?>"
+                                            data-descripcion="<?php echo htmlspecialchars($solicitud['descripcion']); ?>"
+                                            data-destino="<?php echo htmlspecialchars($solicitud['destino']); ?>"
                                             data-vehiculo="<?php echo htmlspecialchars($solicitud['marca'] ? $solicitud['marca'] . ' ' . $solicitud['modelo'] . ' (' . $solicitud['placas'] . ')' : 'Sin asignar'); ?>"
                                             data-estatus="<?php echo htmlspecialchars(ucfirst($solicitud['estatus_solicitud'])); ?>"
                                             data-observaciones-aprobacion="<?php echo htmlspecialchars($solicitud['observaciones_aprobacion']); ?>">
@@ -344,7 +347,7 @@ if ($db) {
         document.addEventListener('DOMContentLoaded', function() {
             var approveRejectModal = document.getElementById('approveRejectModal');
             approveRejectModal.addEventListener('show.bs.modal', function(event) {
-                var button = event.relatedTarget; // Botón que activó el modal
+                var button = event.relatedTarget;
                 var solicitudId = button.getAttribute('data-solicitud-id');
                 var action = button.getAttribute('data-action');
                 var userName = button.getAttribute('data-usuario');
@@ -399,8 +402,8 @@ if ($db) {
                     dateStyle: 'medium',
                     timeStyle: 'short'
                 });
-                document.getElementById('detailEvento').textContent = button.getAttribute('data-evento'); // <<-- NUEVO
-                document.getElementById('detailDescripcion').textContent = button.getAttribute('data-descripcion'); // <<-- RENOMBRADO
+                document.getElementById('detailEvento').textContent = button.getAttribute('data-evento');
+                document.getElementById('detailDescripcion').textContent = button.getAttribute('data-descripcion');
                 document.getElementById('detailDestino').textContent = button.getAttribute('data-destino');
                 document.getElementById('detailVehiculoAsignado').textContent = button.getAttribute('data-vehiculo');
 
@@ -428,7 +431,7 @@ if ($db) {
                         break;
                 }
 
-                document.getElementById('detailObservacionesAprobacion').textContent = button.getAttribute('data-observaciones-aprobacion') || 'N/A';
+                document.getElementById('detailObservacionesAprobacion').textContent = button.getAttribute('data-observaciones-aprobacion');
             });
         });
     </script>

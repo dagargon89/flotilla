@@ -54,7 +54,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->bindParam(':observaciones', $observaciones);
             $stmt->execute();
             $success_message = 'Vehículo agregado con éxito.';
-
         } elseif ($action === 'edit') {
             $id = filter_var($_POST['id'] ?? '', FILTER_VALIDATE_INT);
             $marca = trim($_POST['marca'] ?? '');
@@ -86,7 +85,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->bindParam(':id', $id);
             $stmt->execute();
             $success_message = 'Vehículo actualizado con éxito.';
-
         } elseif ($action === 'delete') {
             $id = filter_var($_POST['id'] ?? '', FILTER_VALIDATE_INT);
             if ($id === false) {
@@ -100,12 +98,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute();
             $success_message = 'Vehículo eliminado con éxito.';
         }
-
     } catch (Exception $e) {
         $error_message = 'Error: ' . $e->getMessage();
         // Para errores de integridad (placas/VIN duplicados)
         if (strpos($e->getMessage(), 'Duplicate entry') !== false) {
-             $error_message = 'Error: Las placas o el VIN ya existen. Por favor, verifica los datos.';
+            $error_message = 'Error: Las placas o el VIN ya existen. Por favor, verifica los datos.';
         }
         error_log("Error en gestión de vehículos: " . $e->getMessage());
     }
@@ -125,6 +122,7 @@ if ($db) {
 
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -132,8 +130,10 @@ if ($db) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
 </head>
+
 <body>
-<?php require_once '../app/includes/navbar.php'; // Incluir la barra de navegación ?>
+    <?php require_once '../app/includes/navbar.php'; // Incluir la barra de navegación 
+    ?>
 
     <div class="container mt-4">
         <h1 class="mb-4">Gestión de Vehículos</h1>
@@ -187,13 +187,21 @@ if ($db) {
                                 <td><?php echo htmlspecialchars(number_format($vehiculo['kilometraje_actual'])); ?></td>
                                 <td>
                                     <?php
-                                        $status_class = '';
-                                        switch ($vehiculo['estatus']) {
-                                            case 'disponible': $status_class = 'badge bg-success'; break;
-                                            case 'en_uso': $status_class = 'badge bg-primary'; break;
-                                            case 'en_mantenimiento': $status_class = 'badge bg-warning text-dark'; break;
-                                            case 'inactivo': $status_class = 'badge bg-danger'; break;
-                                        }
+                                    $status_class = '';
+                                    switch ($vehiculo['estatus']) {
+                                        case 'disponible':
+                                            $status_class = 'badge bg-success';
+                                            break;
+                                        case 'en_uso':
+                                            $status_class = 'badge bg-primary';
+                                            break;
+                                        case 'en_mantenimiento':
+                                            $status_class = 'badge bg-warning text-dark';
+                                            break;
+                                        case 'inactivo':
+                                            $status_class = 'badge bg-danger';
+                                            break;
+                                    }
                                     ?>
                                     <span class="<?php echo $status_class; ?>"><?php echo htmlspecialchars(ucfirst($vehiculo['estatus'])); ?></span>
                                 </td>
@@ -331,7 +339,7 @@ if ($db) {
         // JavaScript para manejar los modales de agregar/editar vehículo
         document.addEventListener('DOMContentLoaded', function() {
             var addEditVehicleModal = document.getElementById('addEditVehicleModal');
-            addEditVehicleModal.addEventListener('show.bs.modal', function (event) {
+            addEditVehicleModal.addEventListener('show.bs.modal', function(event) {
                 var button = event.relatedTarget; // Botón que activó el modal
                 var action = button.getAttribute('data-action'); // 'add' o 'edit'
 
@@ -376,7 +384,7 @@ if ($db) {
 
             // JavaScript para manejar el modal de eliminar vehículo
             var deleteVehicleModal = document.getElementById('deleteVehicleModal');
-            deleteVehicleModal.addEventListener('show.bs.modal', function (event) {
+            deleteVehicleModal.addEventListener('show.bs.modal', function(event) {
                 var button = event.relatedTarget; // Botón que activó el modal
                 var vehicleId = button.getAttribute('data-id');
                 var vehiclePlacas = button.getAttribute('data-placas');
@@ -390,4 +398,5 @@ if ($db) {
         });
     </script>
 </body>
+
 </html>
