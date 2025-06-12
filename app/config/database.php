@@ -9,16 +9,15 @@ error_reporting(E_ALL);
 
 // Define las constantes para la conexión a la base de datos
 define('DB_HOST', 'localhost'); // El host de tu base de datos (normalmente 'localhost' en XAMPP)
-define('DB_USER', 'root');     // Tu usuario de MySQL (por defecto 'root' en XAMPP)
-define('DB_PASS', '');         // Tu contraseña de MySQL (por defecto vacía en XAMPP)
+define('DB_USER', 'david');     // Tu usuario de MySQL (por defecto 'root' en XAMPP)
+define('DB_PASS', 'Comunica25!');         // Tu contraseña de MySQL (por defecto vacía en XAMPP)
 define('DB_NAME', 'flotilla_interna'); // El nombre de la base de datos que creamos
 
 /**
  * Función para establecer la conexión a la base de datos.
  * @return PDO|null Objeto PDO si la conexión es exitosa, null si falla.
  */
-function connectDB()
-{
+function connectDB() {
     try {
         // Crea una nueva instancia de PDO (PHP Data Objects)
         // Esto es más seguro y moderno que mysqli_connect()
@@ -43,3 +42,4 @@ function connectDB()
 // if ($db) {
 //     echo "¡Conexión a la base de datos exitosa!";
 // }
+?>
