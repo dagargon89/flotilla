@@ -1,5 +1,5 @@
 <?php
-// public/gestion_usuarios.php - CÓDIGO COMPLETO Y ACTUALIZADO (Estilos de botones y lógica de estatus)
+// public/gestion_usuarios.php - CÓDIGO COMPLETO Y ACTUALIZADO (Añadir botón Amonestar en tabla)
 session_start();
 require_once '../app/config/database.php';
 
@@ -18,10 +18,11 @@ $success_message = '';
 $error_message = '';
 $db = connectDB();
 $usuarios = []; // Para guardar la lista de usuarios
+$historial_amonestaciones_modal = []; // Para el historial en el modal de detalle
 
-// --- Lógica para procesar el formulario (Agregar/Editar/Eliminar/Aprobar/Rechazar Usuario) ---
+// --- Lógica para procesar el formulario (Agregar/Editar/Eliminar/Aprobar/Rechazar/Amonestar Usuario) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? ''; // 'add', 'edit', 'delete', 'approve_account', 'reject_account'
+    $action = $_POST['action'] ?? ''; // 'add', 'edit', 'delete', 'approve_account', 'reject_account', 'add_amonestacion'
 
     try {
         if ($action === 'add') {
@@ -36,8 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $hashed_password = password_hash($password, PASSWORD_DEFAULT);
 
-            // Nuevo usuario añadido por admin se activa directamente
-            $stmt = $db->prepare("INSERT INTO usuarios (nombre, correo_electronico, password, rol, estatus_cuenta) VALUES (:nombre, :correo_electronico, :password, :rol, 'activa')");
+            $stmt = $db->prepare("INSERT INTO usuarios (nombre, correo_electronico, password, rol, estatus_cuenta, estatus_usuario) VALUES (:nombre, :correo_electronico, :password, :rol, 'activa', 'activo')");
             $stmt->bindParam(':nombre', $nombre);
             $stmt->bindParam(':correo_electronico', $correo_electronico);
             $stmt->bindParam(':password', $hashed_password);
@@ -49,14 +49,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $nombre = trim($_POST['nombre'] ?? '');
             $correo_electronico = trim($_POST['correo_electronico'] ?? '');
             $rol = $_POST['rol'] ?? 'empleado';
-            $estatus_cuenta = $_POST['estatus_cuenta'] ?? 'pendiente_aprobacion'; // Nuevo
+            $estatus_cuenta = $_POST['estatus_cuenta'] ?? 'pendiente_aprobacion';
+            $estatus_usuario = $_POST['estatus_usuario'] ?? 'activo';
             $new_password = $_POST['new_password'] ?? '';
 
-            if ($id === false || empty($nombre) || empty($correo_electronico) || empty($rol) || empty($estatus_cuenta)) {
+            if ($id === false || empty($nombre) || empty($correo_electronico) || empty($rol) || empty($estatus_cuenta) || empty($estatus_usuario)) {
                 throw new Exception("Por favor, completa todos los campos obligatorios para editar el usuario.");
             }
 
-            $sql = "UPDATE usuarios SET nombre = :nombre, correo_electronico = :correo_electronico, rol = :rol, estatus_cuenta = :estatus_cuenta";
+            $sql = "UPDATE usuarios SET nombre = :nombre, correo_electronico = :correo_electronico, rol = :rol, estatus_cuenta = :estatus_cuenta, estatus_usuario = :estatus_usuario";
             if (!empty($new_password)) {
                 $hashed_new_password = password_hash($new_password, PASSWORD_DEFAULT);
                 $sql .= ", password = :password";
@@ -67,7 +68,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->bindParam(':nombre', $nombre);
             $stmt->bindParam(':correo_electronico', $correo_electronico);
             $stmt->bindParam(':rol', $rol);
-            $stmt->bindParam(':estatus_cuenta', $estatus_cuenta); // Nuevo
+            $stmt->bindParam(':estatus_cuenta', $estatus_cuenta);
+            $stmt->bindParam(':estatus_usuario', $estatus_usuario);
             if (!empty($new_password)) {
                 $stmt->bindParam(':password', $hashed_new_password);
             }
@@ -82,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception("ID de usuario inválido para eliminar.");
             }
 
-            if ($id == $_SESSION['user_id_sesion']) { // Usar user_id_sesion para comparar
+            if ($id == $user_id_sesion) {
                 throw new Exception("No puedes eliminar tu propia cuenta de administrador.");
             }
 
@@ -96,7 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception("ID de usuario inválido para aprobar/rechazar.");
             }
 
-            if ($id == $_SESSION['user_id_sesion']) { // Usar user_id_sesion para comparar
+            if ($id == $user_id_sesion) {
                 throw new Exception("No puedes aprobar/rechazar tu propia cuenta.");
             }
 
@@ -112,8 +114,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $error_message = 'No se pudo actualizar el estatus de la cuenta. Puede que ya haya sido procesada.';
             }
+        } elseif ($action === 'add_amonestacion') {
+            $usuario_id = filter_var($_POST['amonestacion_user_id'] ?? null, FILTER_VALIDATE_INT);
+            $tipo_amonestacion = trim($_POST['tipo_amonestacion'] ?? '');
+            $descripcion_amonestacion = trim($_POST['descripcion_amonestacion'] ?? '');
+
+            if ($usuario_id === false || empty($tipo_amonestacion) || empty($descripcion_amonestacion)) {
+                throw new Exception("Completa todos los campos para la amonestación.");
+            }
+
+            $db->beginTransaction();
+
+            $stmt_amonestacion = $db->prepare("INSERT INTO amonestaciones (usuario_id, tipo_amonestacion, descripcion, amonestado_por) VALUES (:usuario_id, :tipo_amonestacion, :descripcion, :amonestado_por)");
+            $stmt_amonestacion->bindParam(':usuario_id', $usuario_id);
+            $stmt_amonestacion->bindParam(':tipo_amonestacion', $tipo_amonestacion);
+            $stmt_amonestacion->bindParam(':descripcion', $descripcion_amonestacion);
+            $stmt_amonestacion->bindParam(':amonestado_por', $user_id_sesion);
+            $stmt_amonestacion->execute();
+
+            if ($tipo_amonestacion === 'suspension') {
+                $stmt_update_user_status = $db->prepare("UPDATE usuarios SET estatus_usuario = 'suspendido' WHERE id = :usuario_id");
+                $stmt_update_user_status->bindParam(':usuario_id', $usuario_id);
+                $stmt_update_user_status->execute();
+            } elseif ($tipo_amonestacion === 'amonestado') { // Si quieres cambiar a 'amonestado' por una amonestación (no suspension)
+                $stmt_update_user_status = $db->prepare("UPDATE usuarios SET estatus_usuario = 'amonestado' WHERE id = :usuario_id AND estatus_usuario = 'activo'");
+                $stmt_update_user_status->bindParam(':usuario_id', $usuario_id);
+                $stmt_update_user_status->execute();
+            }
+
+            $db->commit();
+            $success_message = 'Amonestación registrada con éxito.';
         }
     } catch (Exception $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
         $error_message = 'Error: ' . $e->getMessage();
         if (strpos($e->getMessage(), 'Duplicate entry') !== false && strpos($e->getMessage(), 'correo_electronico') !== false) {
             $error_message = 'Error: El correo electrónico ya está registrado. Por favor, usa otro.';
@@ -123,14 +158,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // --- Obtener todos los usuarios para mostrar en la tabla ---
+$requested_user_id_for_history = filter_var($_GET['view_history_id'] ?? null, FILTER_VALIDATE_INT);
+$historial_amonestaciones_modal = [];
+
 if ($db) {
     try {
-        // Añadir estatus_cuenta a la consulta
-        $stmt = $db->query("SELECT id, nombre, correo_electronico, rol, estatus_cuenta, fecha_creacion, ultima_sesion FROM usuarios ORDER BY nombre ASC");
+        $stmt = $db->query("SELECT id, nombre, correo_electronico, rol, estatus_cuenta, estatus_usuario, fecha_creacion, ultima_sesion FROM usuarios ORDER BY nombre ASC");
         $usuarios = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if ($requested_user_id_for_history) {
+            $stmt_history = $db->prepare("
+                SELECT a.id, a.fecha_amonestacion, a.tipo_amonestacion, a.descripcion, a.evidencia_url,
+                       u.nombre AS amonestado_por_nombre
+                FROM amonestaciones a
+                LEFT JOIN usuarios u ON a.amonestado_por = u.id
+                WHERE a.usuario_id = :user_id
+                ORDER BY a.fecha_amonestacion DESC
+            ");
+            $stmt_history->bindParam(':user_id', $requested_user_id_for_history);
+            $stmt_history->execute();
+            $historial_amonestaciones_modal = $stmt_history->fetchAll(PDO::FETCH_ASSOC);
+        }
     } catch (PDOException $e) {
-        error_log("Error al cargar usuarios: " . $e->getMessage());
-        $error_message = 'No se pudieron cargar los usuarios.';
+        error_log("Error al cargar usuarios o historial de amonestaciones: " . $e->getMessage());
+        $error_message = 'No se pudieron cargar los datos de usuarios o su historial.';
     }
 }
 ?>
@@ -187,6 +238,7 @@ if ($db) {
                             <th>Correo Electrónico</th>
                             <th>Rol</th>
                             <th>Estatus Cuenta</th>
+                            <th>Estatus Uso</th>
                             <th>Última Sesión</th>
                             <th>Acciones</th>
                         </tr>
@@ -234,9 +286,27 @@ if ($db) {
                                     ?>
                                     <span class="<?php echo $estatus_cuenta_class; ?>"><?php echo htmlspecialchars(ucfirst(str_replace('_', ' ', $usuario['estatus_cuenta']))); ?></span>
                                 </td>
+                                <td>
+                                    <?php
+                                    $estatus_usuario_class = '';
+                                    switch ($usuario['estatus_usuario']) {
+                                        case 'activo':
+                                            $estatus_usuario_class = 'badge bg-success';
+                                            break;
+                                        case 'amonestado':
+                                            $estatus_usuario_class = 'badge bg-warning text-dark';
+                                            break;
+                                        case 'suspendido':
+                                            $estatus_usuario_class = 'badge bg-danger';
+                                            break;
+                                    }
+                                    ?>
+                                    <span class="<?php echo $estatus_usuario_class; ?>"><?php echo htmlspecialchars(ucfirst($usuario['estatus_usuario'])); ?></span>
+                                </td>
                                 <td><?php echo $usuario['ultima_sesion'] ? date('d/m/Y H:i', strtotime($usuario['ultima_sesion'])) : 'Nunca'; ?></td>
                                 <td>
-                                    <div class="d-flex flex-wrap gap-1"> <?php if ($usuario['estatus_cuenta'] === 'pendiente_aprobacion'): ?>
+                                    <div class="d-flex flex-wrap gap-1">
+                                        <?php if ($usuario['estatus_cuenta'] === 'pendiente_aprobacion'): ?>
                                             <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#approveRejectUserModal"
                                                 data-user-id="<?php echo $usuario['id']; ?>" data-action="approve_account" data-user-name="<?php echo htmlspecialchars($usuario['nombre']); ?>">
                                                 Aprobar
@@ -246,16 +316,23 @@ if ($db) {
                                                 Rechazar
                                             </button>
                                         <?php endif; ?>
+                                        <button type="button" class="btn btn-sm btn-warning text-dark" data-bs-toggle="modal" data-bs-target="#addAmonestacionModal" data-user-id="<?php echo $usuario['id']; ?>" data-user-name="<?php echo htmlspecialchars($usuario['nombre']); ?>">
+                                            Amonestar
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-secondary" data-bs-toggle="modal" data-bs-target="#viewUserHistoryModal"
+                                            data-user-id="<?php echo $usuario['id']; ?>" data-user-name="<?php echo htmlspecialchars($usuario['nombre']); ?>">
+                                            Historial Amon.
+                                        </button>
                                         <button type="button" class="btn btn-sm btn-info text-white" data-bs-toggle="modal" data-bs-target="#addEditUserModal" data-action="edit"
                                             data-id="<?php echo $usuario['id']; ?>"
                                             data-nombre="<?php echo htmlspecialchars($usuario['nombre']); ?>"
                                             data-correo="<?php echo htmlspecialchars($usuario['correo_electronico']); ?>"
                                             data-rol="<?php echo htmlspecialchars($usuario['rol']); ?>"
-                                            data-estatus-cuenta="<?php echo htmlspecialchars($usuario['estatus_cuenta']); ?>">
+                                            data-estatus-cuenta="<?php echo htmlspecialchars($usuario['estatus_cuenta']); ?>"
+                                            data-estatus-usuario="<?php echo htmlspecialchars($usuario['estatus_usuario']); ?>">
                                             Editar
                                         </button>
-                                        <?php if ($usuario['id'] !== $user_id_sesion): // Se usa $user_id_sesion, que es el ID del usuario logueado 
-                                        ?>
+                                        <?php if ($usuario['id'] !== $user_id_sesion): ?>
                                             <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#deleteUserModal" data-id="<?php echo $usuario['id']; ?>" data-nombre="<?php echo htmlspecialchars($usuario['nombre']); ?>">
                                                 Eliminar
                                             </button>
@@ -313,6 +390,14 @@ if ($db) {
                                     <option value="inactiva">Inactiva</option>
                                 </select>
                             </div>
+                            <div class="mb-3" id="estatusUsuarioField">
+                                <label for="estatus_usuario" class="form-label">Estatus de Uso (Vehículos)</label>
+                                <select class="form-select" id="estatus_usuario" name="estatus_usuario" required>
+                                    <option value="activo">Activo</option>
+                                    <option value="amonestado">Amonestado</option>
+                                    <option value="suspendido">Suspendido</option>
+                                </select>
+                            </div>
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -368,6 +453,59 @@ if ($db) {
             </div>
         </div>
 
+        <div class="modal fade" id="addAmonestacionModal" tabindex="-1" aria-labelledby="addAmonestacionModalLabel" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="addAmonestacionModalLabel">Registrar Amonestación para <span id="amonestacionUserName"></span></h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <form action="gestion_usuarios.php" method="POST">
+                        <input type="hidden" name="action" value="add_amonestacion">
+                        <input type="hidden" name="amonestacion_user_id" id="amonestacionUserId">
+                        <div class="modal-body">
+                            <div class="mb-3">
+                                <label for="tipo_amonestacion" class="form-label">Tipo de Amonestación</label>
+                                <select class="form-select" id="tipo_amonestacion" name="tipo_amonestacion" required>
+                                    <option value="">Selecciona...</option>
+                                    <option value="leve">Leve</option>
+                                    <option value="grave">Grave</option>
+                                    <option value="suspension">Suspensión (Automáticamente suspende al usuario)</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="descripcion_amonestacion" class="form-label">Descripción del Incidente</label>
+                                <textarea class="form-control" id="descripcion_amonestacion" name="descripcion_amonestacion" rows="3" required></textarea>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                            <button type="submit" class="btn btn-primary">Registrar Amonestación</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="viewUserHistoryModal" tabindex="-1" aria-labelledby="viewUserHistoryModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="viewUserHistoryModalLabel">Historial de Amonestaciones de <span id="historyUserName"></span></h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="amonestacionesHistoryTable" class="table-responsive">
+                            <p class="text-center text-muted">Cargando historial...</p>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -389,6 +527,8 @@ if ($db) {
                 var passwordHelp = addEditUserModal.querySelector('#passwordHelp');
                 var estatusCuentaField = addEditUserModal.querySelector('#estatusCuentaField');
                 var estatusCuentaSelect = addEditUserModal.querySelector('#estatus_cuenta');
+                var estatusUsuarioField = addEditUserModal.querySelector('#estatusUsuarioField');
+                var estatusUsuarioSelect = addEditUserModal.querySelector('#estatus_usuario');
                 var form = addEditUserModal.querySelector('form');
 
                 form.reset();
@@ -396,6 +536,7 @@ if ($db) {
                 passwordInput.setAttribute('required', 'required');
                 passwordInput.name = 'password';
                 estatusCuentaField.style.display = 'none';
+                estatusUsuarioField.style.display = 'none';
 
                 if (action === 'add') {
                     modalTitle.textContent = 'Agregar Nuevo Usuario';
@@ -414,12 +555,14 @@ if ($db) {
                     passwordInput.name = 'new_password';
                     passwordHelp.textContent = 'Deja este campo vacío para mantener la contraseña actual.';
                     estatusCuentaField.style.display = 'block';
+                    estatusUsuarioField.style.display = 'block';
 
                     userIdInput.value = button.getAttribute('data-id');
                     addEditUserModal.querySelector('#nombre').value = button.getAttribute('data-nombre');
                     addEditUserModal.querySelector('#correo_electronico').value = button.getAttribute('data-correo');
                     addEditUserModal.querySelector('#rol').value = button.getAttribute('data-rol');
                     estatusCuentaSelect.value = button.getAttribute('data-estatus-cuenta');
+                    estatusUsuarioSelect.value = button.getAttribute('data-estatus-usuario');
                 }
             });
 
@@ -464,6 +607,92 @@ if ($db) {
                     modalUserSubmitBtn.textContent = 'Rechazar Cuenta';
                     modalUserSubmitBtn.className = 'btn btn-danger';
                 }
+            });
+
+            // JavaScript para manejar el modal de Añadir Amonestación
+            var addAmonestacionModal = document.getElementById('addAmonestacionModal');
+            addAmonestacionModal.addEventListener('show.bs.modal', function(event) {
+                var button = event.relatedTarget;
+                var userId = button.getAttribute('data-user-id');
+                var userName = button.getAttribute('data-user-name');
+
+                addAmonestacionModal.querySelector('#amonestacionUserName').textContent = userName;
+                addAmonestacionModal.querySelector('#amonestacionUserId').value = userId;
+                addAmonestacionModal.querySelector('form').reset();
+            });
+
+            // JavaScript para manejar el modal de Ver Historial de Amonestaciones
+            var viewUserHistoryModal = document.getElementById('viewUserHistoryModal');
+            viewUserHistoryModal.addEventListener('show.bs.modal', function(event) {
+                var button = event.relatedTarget;
+                var userId = button.getAttribute('data-user-id');
+                var userName = button.getAttribute('data-user-name');
+
+                viewUserHistoryModal.querySelector('#historyUserName').textContent = userName;
+                var historyTableContainer = viewUserHistoryModal.querySelector('#amonestacionesHistoryTable');
+                historyTableContainer.innerHTML = '<p class="text-center text-muted">Cargando historial...</p>';
+
+                fetch('api/get_amonestaciones_history.php?user_id=' + userId)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.error) {
+                            historyTableContainer.innerHTML = '<div class="alert alert-danger text-center">Error al cargar historial: ' + data.error + '</div>';
+                            return;
+                        }
+
+                        if (data.history.length === 0) {
+                            historyTableContainer.innerHTML = '<div class="alert alert-info text-center">No hay amonestaciones registradas para este usuario.</div>';
+                        } else {
+                            let tableHtml = `
+                                <table class="table table-striped table-hover table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Fecha</th>
+                                            <th>Tipo</th>
+                                            <th>Descripción</th>
+                                            <th>Amonestado Por</th>
+                                            <th>Evidencia</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                            `;
+                            data.history.forEach(item => {
+                                const amonestadoPor = item.amonestado_por_nombre || 'N/A';
+                                const evidenciaLink = item.evidencia_url ? `<a href="${item.evidencia_url}" target="_blank">Ver Evidencia</a>` : 'N/A';
+                                let tipoClass = '';
+                                switch (item.tipo_amonestacion) {
+                                    case 'leve':
+                                        tipoClass = 'badge bg-primary';
+                                        break;
+                                    case 'grave':
+                                        tipoClass = 'badge bg-warning text-dark';
+                                        break;
+                                    case 'suspension':
+                                        tipoClass = 'badge bg-danger';
+                                        break;
+                                }
+
+                                tableHtml += `
+                                    <tr>
+                                        <td>${new Date(item.fecha_amonestacion).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                                        <td><span class="${tipoClass}">${item.tipo_amonestacion.charAt(0).toUpperCase() + item.tipo_amonestacion.slice(1)}</span></td>
+                                        <td>${item.descripcion}</td>
+                                        <td>${amonestadoPor}</td>
+                                        <td>${evidenciaLink}</td>
+                                    </tr>
+                                `;
+                            });
+                            tableHtml += `
+                                    </tbody>
+                                </table>
+                            `;
+                            historyTableContainer.innerHTML = tableHtml;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching amonestaciones history:', error);
+                        historyTableContainer.innerHTML = '<div class="alert alert-danger text-center">No se pudo cargar el historial de amonestaciones.</div>';
+                    });
             });
         });
     </script>

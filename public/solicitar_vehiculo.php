@@ -1,5 +1,6 @@
 <?php
-// public/solicitar_vehiculo.php - CÓDIGO COMPLETO Y ACTUALIZADO (Con EVENTO y DESCRIPCION)
+// public/solicitar_vehiculo.php - CÓDIGO ACTUALIZADO CON BLOQUEO POR ESTATUS_USUARIO
+
 session_start();
 require_once '../app/config/database.php';
 
@@ -16,92 +17,95 @@ $rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
 $success_message = '';
 $error_message = '';
 
+// --- NUEVO: Obtener el estatus_usuario para el usuario actual ---
+$db = connectDB();
+$current_user_status = 'activo'; // Default si no se encuentra
+if ($db) {
+    try {
+        $stmt_user_status = $db->prepare("SELECT estatus_usuario FROM usuarios WHERE id = :user_id");
+        $stmt_user_status->bindParam(':user_id', $user_id);
+        $stmt_user_status->execute();
+        $user_status_result = $stmt_user_status->fetch(PDO::FETCH_ASSOC);
+        if ($user_status_result) {
+            $current_user_status = $user_status_result['estatus_usuario'];
+        }
+    } catch (PDOException $e) {
+        error_log("Error al obtener estatus_usuario para solicitud: " . $e->getMessage());
+        $error_message = 'Error al verificar tu estatus de usuario.';
+    }
+}
+
 // Inicializar variables del formulario para evitar "Undefined variable" Warnings
 $selected_vehiculo_id = '';
 $fecha_salida_solicitada = '';
 $fecha_regreso_solicitada = '';
-$evento = ''; // Nuevo campo
-$descripcion = ''; // Renombrado de proposito
+$evento = '';
+$descripcion = '';
 $destino = '';
-
-$db = connectDB();
-$vehiculos_flotilla = []; // Para el dropdown de vehículos
-
-// Obtener lista de TODOS los vehículos para el dropdown, sin importar su estatus actual.
-// La disponibilidad detallada (por fechas de solicitudes) se mostrará en el widget de la derecha.
-if ($db) {
-    try {
-        $stmt_vehiculos = $db->query("SELECT id, marca, modelo, placas FROM vehiculos ORDER BY marca, modelo");
-        $vehiculos_flotilla = $stmt_vehiculos->fetchAll(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
-        error_log("Error al cargar vehículos para solicitud: " . $e->getMessage());
-        $error_message = 'No se pudieron cargar los vehículos disponibles.';
-    }
-}
-
 
 // Lógica para procesar la solicitud cuando se envía el formulario
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $selected_vehiculo_id = filter_var($_POST['vehiculo_id'] ?? null, FILTER_VALIDATE_INT);
-    $fecha_salida_solicitada = trim($_POST['fecha_salida_solicitada'] ?? '');
-    $fecha_regreso_solicitada = trim($_POST['fecha_regreso_solicitada'] ?? '');
-    $evento = trim($_POST['evento'] ?? ''); // Nuevo campo
-    $descripcion = trim($_POST['descripcion'] ?? ''); // Renombrado de proposito
-    $destino = trim($_POST['destino'] ?? '');
-
-    // Validación de los campos, ahora incluyendo el vehículo
-    if (empty($selected_vehiculo_id) || empty($fecha_salida_solicitada) || empty($fecha_regreso_solicitada) || empty($evento) || empty($descripcion) || empty($destino)) {
-        $error_message = 'Por favor, completa todos los campos requeridos, incluyendo la selección del vehículo y el evento/descripción.';
-    } elseif (strtotime($fecha_salida_solicitada) >= strtotime($fecha_regreso_solicitada)) {
-        $error_message = 'La fecha y hora de regreso deben ser posteriores a la fecha y hora de salida.';
+    // Si el usuario está suspendido, no procesar la solicitud
+    if ($current_user_status === 'suspendido') {
+        $error_message = 'No puedes solicitar vehículos porque tu cuenta está SUSPENDIDA. Contacta al administrador.';
     } else {
-        // **Validación de Disponibilidad Final (en el servidor) antes de insertar**
-        if ($db) {
-            try {
-                // Verificar si el vehículo ya está ocupado en el rango de fechas solicitado
-                $stmt_overlap = $db->prepare("
-                    SELECT COUNT(*) FROM solicitudes_vehiculos
-                    WHERE vehiculo_id = :vehiculo_id
-                    AND estatus_solicitud IN ('aprobada', 'en_curso')
-                    AND (
-                        (fecha_salida_solicitada < :fecha_regreso AND fecha_regreso_solicitada > :fecha_salida)
-                    )
-                ");
-                $stmt_overlap->bindParam(':vehiculo_id', $selected_vehiculo_id);
-                $stmt_overlap->bindParam(':fecha_salida', $fecha_salida_solicitada);
-                $stmt_overlap->bindParam(':fecha_regreso', $fecha_regreso_solicitada);
-                $stmt_overlap->execute();
+        // ... (el resto de la lógica de procesamiento del formulario de solicitud) ...
+        $selected_vehiculo_id = filter_var($_POST['vehiculo_id'] ?? null, FILTER_VALIDATE_INT);
+        $fecha_salida_solicitada = trim($_POST['fecha_salida_solicitada'] ?? '');
+        $fecha_regreso_solicitada = trim($_POST['fecha_regreso_solicitada'] ?? '');
+        $evento = trim($_POST['evento'] ?? '');
+        $descripcion = trim($_POST['descripcion'] ?? '');
+        $destino = trim($_POST['destino'] ?? '');
 
-                if ($stmt_overlap->fetchColumn() > 0) {
-                    $error_message = 'El vehículo seleccionado NO está disponible en las fechas que has elegido. Por favor, revisa la disponibilidad y selecciona otras fechas o vehículo.';
-                } else {
-                    // Si todo está bien, insertar la solicitud
-                    $stmt = $db->prepare("INSERT INTO solicitudes_vehiculos (usuario_id, vehiculo_id, fecha_salida_solicitada, fecha_regreso_solicitada, evento, descripcion, destino) VALUES (:usuario_id, :vehiculo_id, :fecha_salida, :fecha_regreso, :evento, :descripcion, :destino)");
-                    $stmt->bindParam(':usuario_id', $user_id);
-                    $stmt->bindParam(':vehiculo_id', $selected_vehiculo_id);
-                    $stmt->bindParam(':fecha_salida', $fecha_salida_solicitada);
-                    $stmt->bindParam(':fecha_regreso', $fecha_regreso_solicitada);
-                    $stmt->bindParam(':evento', $evento); // Nuevo campo
-                    $stmt->bindParam(':descripcion', $descripcion); // Renombrado
-                    $stmt->bindParam(':destino', $destino);
-                    $stmt->execute();
-
-                    $success_message = '¡Tu solicitud ha sido enviada con éxito! Espera la aprobación. Vehículo: ' . htmlspecialchars($_POST['vehiculo_info_display'] ?? '');
-
-                    // Limpiar los campos del formulario después de una solicitud exitosa
-                    $selected_vehiculo_id = '';
-                    $fecha_salida_solicitada = '';
-                    $fecha_regreso_solicitada = '';
-                    $evento = '';
-                    $descripcion = '';
-                    $destino = '';
-                }
-            } catch (PDOException $e) {
-                error_log("Error al enviar solicitud de vehículo: " . $e->getMessage());
-                $error_message = 'Ocurrió un error al procesar tu solicitud. Intenta de nuevo.';
-            }
+        if (empty($selected_vehiculo_id) || empty($fecha_salida_solicitada) || empty($fecha_regreso_solicitada) || empty($evento) || empty($descripcion) || empty($destino)) {
+            $error_message = 'Por favor, completa todos los campos requeridos, incluyendo la selección del vehículo.';
+        } elseif (strtotime($fecha_salida_solicitada) >= strtotime($fecha_regreso_solicitada)) {
+            $error_message = 'La fecha y hora de regreso deben ser posteriores a la fecha y hora de salida.';
         } else {
-            $error_message = 'No se pudo conectar a la base de datos.';
+            if ($db) {
+                try {
+                    $stmt_overlap = $db->prepare("
+                        SELECT COUNT(*) FROM solicitudes_vehiculos
+                        WHERE vehiculo_id = :vehiculo_id
+                        AND estatus_solicitud IN ('aprobada', 'en_curso')
+                        AND (
+                            (fecha_salida_solicitada < :fecha_regreso AND fecha_regreso_solicitada > :fecha_salida)
+                        )
+                    ");
+                    $stmt_overlap->bindParam(':vehiculo_id', $selected_vehiculo_id);
+                    $stmt_overlap->bindParam(':fecha_salida', $fecha_salida_solicitada);
+                    $stmt_overlap->bindParam(':fecha_regreso', $fecha_regreso_solicitada);
+                    $stmt_overlap->execute();
+
+                    if ($stmt_overlap->fetchColumn() > 0) {
+                        $error_message = 'El vehículo seleccionado NO está disponible en las fechas que has elegido. Por favor, revisa la disponibilidad y selecciona otras fechas o vehículo.';
+                    } else {
+                        $stmt = $db->prepare("INSERT INTO solicitudes_vehiculos (usuario_id, vehiculo_id, fecha_salida_solicitada, fecha_regreso_solicitada, evento, descripcion, destino) VALUES (:usuario_id, :vehiculo_id, :fecha_salida, :fecha_regreso, :evento, :descripcion, :destino)");
+                        $stmt->bindParam(':usuario_id', $user_id);
+                        $stmt->bindParam(':vehiculo_id', $selected_vehiculo_id);
+                        $stmt->bindParam(':fecha_salida', $fecha_salida_solicitada);
+                        $stmt->bindParam(':fecha_regreso', $fecha_regreso_solicitada);
+                        $stmt->bindParam(':evento', $evento);
+                        $stmt->bindParam(':descripcion', $descripcion);
+                        $stmt->bindParam(':destino', $destino);
+                        $stmt->execute();
+
+                        $success_message = '¡Tu solicitud ha sido enviada con éxito! Espera la aprobación. Vehículo: ' . htmlspecialchars($_POST['vehiculo_info_display'] ?? '');
+
+                        $selected_vehiculo_id = '';
+                        $fecha_salida_solicitada = '';
+                        $fecha_regreso_solicitada = '';
+                        $evento = '';
+                        $descripcion = '';
+                        $destino = '';
+                    }
+                } catch (PDOException $e) {
+                    error_log("Error al enviar solicitud de vehículo: " . $e->getMessage());
+                    $error_message = 'Ocurrió un error al procesar tu solicitud. Intenta de nuevo.';
+                }
+            } else {
+                $error_message = 'No se pudo conectar a la base de datos.';
+            }
         }
     }
 }
@@ -141,13 +145,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         <?php endif; ?>
 
+        <?php if ($current_user_status === 'suspendido'): ?>
+            <div class="alert alert-warning text-center" role="alert">
+                <strong>¡Tu cuenta está SUSPENDIDA!</strong> No puedes solicitar vehículos en este momento. Contacta al administrador para más información.
+            </div>
+            <p class="text-center">Estatus de tu cuenta: <span class="badge bg-danger"><?php echo htmlspecialchars(ucfirst($current_user_status)); ?></span></p>
+        <?php endif; ?>
+
         <div class="row">
             <div class="col-md-6">
                 <div class="card p-4 shadow-sm">
                     <form action="solicitar_vehiculo.php" method="POST">
                         <div class="mb-3">
                             <label for="vehiculo_id" class="form-label">Selecciona el Vehículo</label>
-                            <select class="form-select" id="vehiculo_id" name="vehiculo_id" required>
+                            <select class="form-select" id="vehiculo_id" name="vehiculo_id" <?php echo ($current_user_status === 'suspendido') ? 'disabled' : ''; ?> required>
                                 <option value="">-- Selecciona un vehículo --</option>
                                 <?php foreach ($vehiculos_flotilla as $vehiculo): ?>
                                     <option value="<?php echo htmlspecialchars($vehiculo['id']); ?>" data-placas="<?php echo htmlspecialchars($vehiculo['placas']); ?>" <?php echo ($selected_vehiculo_id == $vehiculo['id']) ? 'selected' : ''; ?>>
@@ -159,25 +170,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                         <div class="mb-3">
                             <label for="fecha_salida_solicitada" class="form-label">Fecha y Hora de Salida Deseada</label>
-                            <input type="datetime-local" class="form-control" id="fecha_salida_solicitada" name="fecha_salida_solicitada" value="<?php echo htmlspecialchars($fecha_salida_solicitada); ?>" required>
+                            <input type="datetime-local" class="form-control" id="fecha_salida_solicitada" name="fecha_salida_solicitada" value="<?php echo htmlspecialchars($fecha_salida_solicitada); ?>" <?php echo ($current_user_status === 'suspendido') ? 'disabled' : ''; ?> required>
                         </div>
                         <div class="mb-3">
                             <label for="fecha_regreso_solicitada" class="form-label">Fecha y Hora de Regreso Deseada</label>
-                            <input type="datetime-local" class="form-control" id="fecha_regreso_solicitada" name="fecha_regreso_solicitada" value="<?php echo htmlspecialchars($fecha_regreso_solicitada); ?>" required>
+                            <input type="datetime-local" class="form-control" id="fecha_regreso_solicitada" name="fecha_regreso_solicitada" value="<?php echo htmlspecialchars($fecha_regreso_solicitada); ?>" <?php echo ($current_user_status === 'suspendido') ? 'disabled' : ''; ?> required>
                         </div>
                         <div class="mb-3">
                             <label for="evento" class="form-label">Evento</label>
-                            <input type="text" class="form-control" id="evento" name="evento" value="<?php echo htmlspecialchars($evento); ?>" required>
+                            <input type="text" class="form-control" id="evento" name="evento" value="<?php echo htmlspecialchars($evento); ?>" <?php echo ($current_user_status === 'suspendido') ? 'disabled' : ''; ?> required>
                         </div>
                         <div class="mb-3">
                             <label for="descripcion" class="form-label">Descripción del Viaje</label>
-                            <textarea class="form-control" id="descripcion" name="descripcion" rows="3" required><?php echo htmlspecialchars($descripcion); ?></textarea>
+                            <textarea class="form-control" id="descripcion" name="descripcion" rows="3" <?php echo ($current_user_status === 'suspendido') ? 'disabled' : ''; ?> required><?php echo htmlspecialchars($descripcion); ?></textarea>
                         </div>
                         <div class="mb-3">
                             <label for="destino" class="form-label">Destino / Ruta</label>
-                            <input type="text" class="form-control" id="destino" name="destino" value="<?php echo htmlspecialchars($destino); ?>" required>
+                            <input type="text" class="form-control" id="destino" name="destino" value="<?php echo htmlspecialchars($destino); ?>" <?php echo ($current_user_status === 'suspendido') ? 'disabled' : ''; ?> required>
                         </div>
-                        <button type="submit" class="btn btn-primary">Enviar Solicitud</button>
+                        <button type="submit" class="btn btn-primary" <?php echo ($current_user_status === 'suspendido') ? 'disabled' : ''; ?>>Enviar Solicitud</button>
                     </form>
                 </div>
             </div>
@@ -201,134 +212,135 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
             </div>
         </div>
+    </div>
 
-        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-        <script src="js/main.js"></script>
-        <script>
-            // Inicializa Flatpickr para los inputs de fecha
-            const flatpickrSalida = flatpickr("#fecha_salida_solicitada", {
-                enableTime: true,
-                dateFormat: "Y-m-dTH:i",
-                minDate: "today",
-                defaultDate: new Date(),
-                onChange: function(selectedDates, dateStr, instance) {
-                    if (selectedDates.length > 0) {
-                        flatpickrRegreso.set('minDate', selectedDates[0]);
-                    }
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="js/main.js"></script>
+    <script>
+        // Inicializa Flatpickr para los inputs de fecha
+        const flatpickrSalida = flatpickr("#fecha_salida_solicitada", {
+            enableTime: true,
+            dateFormat: "Y-m-dTH:i",
+            minDate: "today",
+            defaultDate: new Date(),
+            onChange: function(selectedDates, dateStr, instance) {
+                if (selectedDates.length > 0) {
+                    flatpickrRegreso.set('minDate', selectedDates[0]);
                 }
-            });
-            const flatpickrRegreso = flatpickr("#fecha_regreso_solicitada", {
-                enableTime: true,
-                dateFormat: "Y-m-dTH:i",
-                minDate: "today",
-                defaultDate: new Date().fp_incr(1)
-            });
+            }
+        });
+        const flatpickrRegreso = flatpickr("#fecha_regreso_solicitada", {
+            enableTime: true,
+            dateFormat: "Y-m-dTH:i",
+            minDate: "today",
+            defaultDate: new Date().fp_incr(1)
+        });
 
-            // --- Lógica para la vista de lista de disponibilidad ---
-            const vehiculoSelect = document.getElementById('vehiculo_id');
-            const availabilityListContainer = document.getElementById('availability_list_container');
-            const occupiedDatesList = document.getElementById('occupied_dates_list');
-            const noVehicleSelectedMessage = document.getElementById('no_vehicle_selected_message');
-            const noOccupiedDatesMessage = document.getElementById('no_occupied_dates_message');
-            const vehiculoInfoDisplay = document.getElementById('vehiculo_info_display');
-            const occupiedDatesHint = document.getElementById('occupied_dates_hint');
+        // --- Lógica para la vista de lista de disponibilidad ---
+        const vehiculoSelect = document.getElementById('vehiculo_id');
+        const availabilityListContainer = document.getElementById('availability_list_container');
+        const occupiedDatesList = document.getElementById('occupied_dates_list');
+        const noVehicleSelectedMessage = document.getElementById('no_vehicle_selected_message');
+        const noOccupiedDatesMessage = document.getElementById('no_occupied_dates_message');
+        const vehiculoInfoDisplay = document.getElementById('vehiculo_info_display');
+        const occupiedDatesHint = document.getElementById('occupied_dates_hint');
 
-            // Función para formatear fechas para la lista
-            function formatDateTime(dateTimeString) {
-                const isoDateTimeString = dateTimeString.replace(' ', 'T');
-                const date = new Date(isoDateTimeString);
+        // Función para formatear fechas para la lista
+        function formatDateTime(dateTimeString) {
+            const isoDateTimeString = dateTimeString.replace(' ', 'T');
+            const date = new Date(isoDateTimeString);
 
-                if (isNaN(date.getTime())) {
-                    console.error("Fecha inválida recibida:", dateTimeString);
-                    return 'Fecha Inválida';
-                }
-
-                const options = {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                };
-                return date.toLocaleString('es-MX', options);
+            if (isNaN(date.getTime())) {
+                console.error("Fecha inválida recibida:", dateTimeString);
+                return 'Fecha Inválida';
             }
 
-            // Función para cargar la disponibilidad y actualizar la lista
-            function loadAvailabilityList(vehiculoId) {
-                if (!vehiculoId) {
-                    availabilityListContainer.style.display = 'none';
-                    noVehicleSelectedMessage.style.display = 'block';
-                    noOccupiedDatesMessage.style.display = 'none';
-                    occupiedDatesList.innerHTML = '';
-                    occupiedDatesHint.textContent = '';
-                    return;
-                }
+            const options = {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            };
+            return date.toLocaleString('es-MX', options);
+        }
 
-                occupiedDatesList.innerHTML = '<li class="list-group-item text-center text-muted">Cargando ocupaciones...</li>';
-                availabilityListContainer.style.display = 'block';
-                noVehicleSelectedMessage.style.display = 'none';
-                noOccupiedDatesMessage.style.display = 'none';
-                occupiedDatesHint.textContent = '';
-
-                fetch('api/get_vehiculo_availability.php?vehiculo_id=' + vehiculoId)
-                    .then(response => response.json())
-                    .then(data => {
-                        occupiedDatesList.innerHTML = '';
-                        if (data.error) {
-                            console.error('Error al cargar ocupaciones:', data.error);
-                            occupiedDatesList.innerHTML = '<li class="list-group-item text-center alert alert-danger">Error al cargar la disponibilidad: ' + data.error + '</li>';
-                            return;
-                        }
-
-                        if (data.occupied_ranges && data.occupied_ranges.length > 0) {
-                            data.occupied_ranges.sort((a, b) => new Date(a.fecha_salida_solicitada.replace(' ', 'T')) - new Date(b.fecha_salida_solicitada.replace(' ', 'T')));
-
-                            data.occupied_ranges.forEach(range => {
-                                const listItem = document.createElement('li');
-                                listItem.className = 'list-group-item';
-                                listItem.innerHTML = `
-                                    <strong>Ocupado desde:</strong> ${formatDateTime(range.fecha_salida_solicitada)}<br>
-                                    <strong>Hasta:</strong> ${formatDateTime(range.fecha_regreso_solicitada)}<br>
-                                    <strong>Evento:</strong> ${range.evento || 'N/A'}<br>
-                                    <strong>Descripción:</strong> ${range.descripcion || 'N/A'}<br>
-                                    <strong>Solicitado por:</strong> ${range.solicitante_nombre || 'Desconocido'}
-                                `;
-                                occupiedDatesList.appendChild(listItem);
-                            });
-                            occupiedDatesHint.textContent = 'Estas son las próximas fechas en que el vehículo estará ocupado por solicitudes aprobadas o en curso.';
-                            noOccupiedDatesMessage.style.display = 'none';
-                        } else {
-                            noOccupiedDatesMessage.style.display = 'block';
-                            occupiedDatesHint.textContent = '';
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error fetching availability list:', error);
-                        occupiedDatesList.innerHTML = '<li class="list-group-item text-center alert alert-danger">No se pudo cargar la lista de ocupaciones.</li>';
-                    });
-            }
-
-            // Event listener para el cambio de selección de vehículo
-            vehiculoSelect.addEventListener('change', function() {
-                const selectedId = this.value;
-                const selectedOption = this.options[this.selectedIndex];
-                const selectedInfo = selectedOption ? selectedOption.textContent : '';
-                vehiculoInfoDisplay.value = selectedInfo;
-
-                loadAvailabilityList(selectedId);
-            });
-
-            // Cargar disponibilidad si ya hay un vehículo preseleccionado al cargar la página
-            if (vehiculoSelect.value) {
-                loadAvailabilityList(vehiculoSelect.value);
-            } else {
+        // Función para cargar la disponibilidad y actualizar la lista
+        function loadAvailabilityList(vehiculoId) {
+            if (!vehiculoId) {
                 availabilityListContainer.style.display = 'none';
                 noVehicleSelectedMessage.style.display = 'block';
                 noOccupiedDatesMessage.style.display = 'none';
+                occupiedDatesList.innerHTML = '';
+                occupiedDatesHint.textContent = '';
+                return;
             }
-        </script>
+
+            occupiedDatesList.innerHTML = '<li class="list-group-item text-center text-muted">Cargando ocupaciones...</li>';
+            availabilityListContainer.style.display = 'block';
+            noVehicleSelectedMessage.style.display = 'none';
+            noOccupiedDatesMessage.style.display = 'none';
+            occupiedDatesHint.textContent = '';
+
+            fetch('api/get_vehiculo_availability.php?vehiculo_id=' + vehiculoId)
+                .then(response => response.json())
+                .then(data => {
+                    occupiedDatesList.innerHTML = '';
+                    if (data.error) {
+                        console.error('Error al cargar ocupaciones:', data.error);
+                        occupiedDatesList.innerHTML = '<li class="list-group-item text-center alert alert-danger">Error al cargar la disponibilidad: ' + data.error + '</li>';
+                        return;
+                    }
+
+                    if (data.occupied_ranges && data.occupied_ranges.length > 0) {
+                        data.occupied_ranges.sort((a, b) => new Date(a.fecha_salida_solicitada.replace(' ', 'T')) - new Date(b.fecha_salida_solicitada.replace(' ', 'T')));
+
+                        data.occupied_ranges.forEach(range => {
+                            const listItem = document.createElement('li');
+                            listItem.className = 'list-group-item';
+                            listItem.innerHTML = `
+                                <strong>Ocupado desde:</strong> ${formatDateTime(range.fecha_salida_solicitada)}<br>
+                                <strong>Hasta:</strong> ${formatDateTime(range.fecha_regreso_solicitada)}<br>
+                                <strong>Evento:</strong> ${range.evento || 'N/A'}<br>
+                                <strong>Descripción:</strong> ${range.descripcion || 'N/A'}<br>
+                                <strong>Solicitado por:</strong> ${range.solicitante_nombre || 'Desconocido'}
+                            `;
+                            occupiedDatesList.appendChild(listItem);
+                        });
+                        occupiedDatesHint.textContent = 'Estas son las próximas fechas en que el vehículo estará ocupado por solicitudes aprobadas o en curso.';
+                        noOccupiedDatesMessage.style.display = 'none';
+                    } else {
+                        noOccupiedDatesMessage.style.display = 'block';
+                        occupiedDatesHint.textContent = '';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching availability list:', error);
+                    occupiedDatesList.innerHTML = '<li class="list-group-item text-center alert alert-danger">No se pudo cargar la lista de ocupaciones.</li>';
+                });
+        }
+
+        // Event listener para el cambio de selección de vehículo
+        vehiculoSelect.addEventListener('change', function() {
+            const selectedId = this.value;
+            const selectedOption = this.options[this.selectedIndex];
+            const selectedInfo = selectedOption ? selectedOption.textContent : '';
+            vehiculoInfoDisplay.value = selectedInfo;
+
+            loadAvailabilityList(selectedId);
+        });
+
+        // Cargar disponibilidad si ya hay un vehículo preseleccionado al cargar la página
+        if (vehiculoSelect.value) {
+            loadAvailabilityList(vehiculoSelect.value);
+        } else {
+            availabilityListContainer.style.display = 'none';
+            noVehicleSelectedMessage.style.display = 'block';
+            noOccupiedDatesMessage.style.display = 'none';
+        }
+    </script>
 </body>
 
 </html>
