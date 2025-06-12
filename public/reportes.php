@@ -1,5 +1,5 @@
 <?php
-// public/reportes.php - CÓDIGO COMPLETO CON FILTROS Y PREPARACIÓN PARA DESCARGA (REVISADO Y CORREGIDO)
+// public/reportes.php - CÓDIGO COMPLETO Y ACTUALIZADO (Con EVENTO y DESCRIPCION en Reportes)
 session_start();
 require_once '../app/config/database.php';
 
@@ -12,21 +12,17 @@ if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] !== 'flotilla_manage
 
 $nombre_usuario_sesion = $_SESSION['user_name'];
 $rol_usuario_sesion = $_SESSION['user_role'];
-$nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
-$rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
 
 $error_message = '';
 $db = connectDB();
 
 // --- Variables para los filtros ---
-// Valores por defecto: inicio y fin del mes actual.
-// Usamos date('Y-m-t') para el último día del mes, es más seguro que solo '30'.
-$filter_start_date = $_GET['start_date'] ?? date('Y-m-01');
-$filter_end_date = $_GET['end_date'] ?? date('Y-m-t');
+$filter_start_date = $_GET['start_date'] ?? date('Y-m-01'); // Por defecto, inicio del mes actual
+$filter_end_date = $_GET['end_date'] ?? date('Y-m-t');     // Por defecto, fin del mes actual
 $filter_vehiculo_id = filter_var($_GET['vehiculo_id'] ?? null, FILTER_VALIDATE_INT);
 $filter_estatus_solicitud = $_GET['estatus_solicitud'] ?? '';
 
-// Obtener lista de vehículos para el filtro (sin filtros de fecha aquí)
+// Obtener lista de vehículos para el filtro
 $vehiculos_para_filtro = [];
 if ($db) {
     try {
@@ -34,7 +30,6 @@ if ($db) {
         $vehiculos_para_filtro = $stmt_veh_filtro->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
         error_log("Error al cargar vehículos para filtros: " . $e->getMessage());
-        // No agregamos a $error_message aquí, para no bloquear la carga de la página si solo fallan los filtros.
     }
 }
 
@@ -54,7 +49,6 @@ if ($db) {
         $report_data['vehiculos_por_estatus'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // --- Construir consultas con filtros dinámicos ---
-        // Las fechas se convierten a DATETIME para comparar con las columnas DATETIME
         $start_datetime = $filter_start_date . ' 00:00:00';
         $end_datetime = $filter_end_date . ' 23:59:59';
 
@@ -72,7 +66,6 @@ if ($db) {
 
 
         // Reporte 2: Kilómetros recorridos por Vehículo (Filtrado)
-        // Usamos s.fecha_salida_solicitada para el rango de fechas del filtro
         $sql_km = "
             SELECT
                 v.placas,
@@ -81,9 +74,9 @@ if ($db) {
                 SUM(COALESCE(hu.kilometraje_regreso, 0) - COALESCE(hu.kilometraje_salida, 0)) as total_km
             FROM solicitudes_vehiculos s
             JOIN usuarios u ON s.usuario_id = u.id
-            JOIN vehiculos v ON s.vehiculo_id = v.id -- INNER JOIN si solo queremos vehículos asignados a solicitudes
+            JOIN vehiculos v ON s.vehiculo_id = v.id
             LEFT JOIN historial_uso_vehiculos hu ON s.id = hu.solicitud_id
-            WHERE s.estatus_solicitud IN ('en_curso', 'completada') -- Solo contamos KM de solicitudes en curso o completadas
+            WHERE s.estatus_solicitud IN ('en_curso', 'completada')
             AND s.fecha_salida_solicitada BETWEEN :start_date AND :end_date
         ";
         $params_km = [
@@ -94,11 +87,7 @@ if ($db) {
             $sql_km .= " AND v.id = :vehiculo_id";
             $params_km[':vehiculo_id'] = $filter_vehiculo_id;
         }
-        if (!empty($filter_estatus_solicitud)) { // No aplica estatus solicitud aquí si solo es en curso/completada
-            // $sql_km .= " AND s.estatus_solicitud = :estatus_solicitud";
-            // $params_km[':estatus_solicitud'] = $filter_estatus_solicitud;
-        }
-        $sql_km .= " GROUP BY v.id, v.placas, v.marca, v.modelo HAVING total_km > 0 ORDER BY total_km DESC"; // Solo mostrar si tienen KM
+        $sql_km .= " GROUP BY v.id, v.placas, v.marca, v.modelo HAVING total_km > 0 ORDER BY total_km DESC";
         $stmt_km = $db->prepare($sql_km);
         $stmt_km->execute($params_km);
         $report_data['kilometros_por_vehiculo'] = $stmt_km->fetchAll(PDO::FETCH_ASSOC);
@@ -123,7 +112,7 @@ if ($db) {
             $sql_mantenimiento .= " AND m.vehiculo_id = :vehiculo_id_maint";
             $params_maint[':vehiculo_id_maint'] = $filter_vehiculo_id;
         }
-        $sql_mantenimiento .= " GROUP BY v.id, v.placas, v.marca, v.modelo HAVING total_costo > 0 ORDER BY total_costo DESC"; // Solo mostrar si tienen costo
+        $sql_mantenimiento .= " GROUP BY v.id, v.placas, v.marca, v.modelo HAVING total_costo > 0 ORDER BY total_costo DESC";
         $stmt_maint = $db->prepare($sql_mantenimiento);
         $stmt_maint->execute($params_maint);
         $report_data['costos_mantenimiento_por_vehiculo'] = $stmt_maint->fetchAll(PDO::FETCH_ASSOC);
@@ -162,7 +151,8 @@ if ($db) {
                 u.nombre AS usuario_nombre,
                 s.fecha_salida_solicitada,
                 s.fecha_regreso_solicitada,
-                s.proposito,
+                s.evento,             /* <<-- NUEVO */
+                s.descripcion,        /* <<-- RENOMBRADO */
                 s.destino,
                 s.estatus_solicitud,
                 v.marca,
@@ -192,11 +182,8 @@ if ($db) {
         $stmt_detalle = $db->prepare($sql_detalle);
         $stmt_detalle->execute($params_detalle);
         $report_data['detalle_solicitudes_filtradas'] = $stmt_detalle->fetchAll(PDO::FETCH_ASSOC);
-
-
     } catch (PDOException $e) {
         error_log("Error al cargar datos de reportes: " . $e->getMessage());
-        // Mostramos un error amigable al usuario, pero la página sigue cargando si es posible
         $error_message = 'No se pudieron cargar los datos de los reportes. Detalle para desarrollo: ' . $e->getMessage();
     }
 }
@@ -206,6 +193,7 @@ $report_data_json = json_encode($report_data);
 
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -215,8 +203,13 @@ $report_data_json = json_encode($report_data);
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 </head>
+
 <body>
-<?php require_once '../app/includes/navbar.php'; // Incluir la barra de navegación ?>
+    <?php
+    $nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
+    $rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
+    require_once '../app/includes/navbar.php';
+    ?>
 
     <div class="container mt-4">
         <h1 class="mb-4">Reportes y Estadísticas de la Flotilla</h1>
@@ -340,8 +333,9 @@ $report_data_json = json_encode($report_data);
                                     <th>ID Sol.</th>
                                     <th>Solicitante</th>
                                     <th>Salida Deseada</th>
-                                    <th>Regreso Deseado</th>
-                                    <th>Propósito</th>
+                                    <th>Regreso Deseada</th>
+                                    <th>Evento</th>
+                                    <th>Descripción</th>
                                     <th>Destino</th>
                                     <th>Vehículo Asignado</th>
                                     <th>Estatus</th>
@@ -357,25 +351,38 @@ $report_data_json = json_encode($report_data);
                                         <td><?php echo htmlspecialchars($solicitud['usuario_nombre']); ?></td>
                                         <td><?php echo date('d/m/Y H:i', strtotime($solicitud['fecha_salida_solicitada'])); ?></td>
                                         <td><?php echo date('d/m/Y H:i', strtotime($solicitud['fecha_regreso_solicitada'])); ?></td>
-                                        <td><?php echo htmlspecialchars($solicitud['proposito']); ?></td>
+                                        <td><?php echo htmlspecialchars($solicitud['evento']); ?></td>
+                                        <td><?php echo htmlspecialchars($solicitud['descripcion']); ?></td>
                                         <td><?php echo htmlspecialchars($solicitud['destino']); ?></td>
                                         <td><?php echo htmlspecialchars($solicitud['marca'] ? $solicitud['marca'] . ' ' . $solicitud['modelo'] . ' (' . $solicitud['placas'] . ')' : 'Sin asignar'); ?></td>
                                         <td><span class="badge bg-<?php
-                                            switch ($solicitud['estatus_solicitud']) {
-                                                case 'pendiente': echo 'warning text-dark'; break;
-                                                case 'aprobada': echo 'success'; break;
-                                                case 'rechazada': echo 'danger'; break;
-                                                case 'en_curso': echo 'primary'; break;
-                                                case 'completada': echo 'secondary'; break;
-                                                case 'cancelada': echo 'info'; break;
-                                            }
-                                        ?>"><?php echo htmlspecialchars(ucfirst($solicitud['estatus_solicitud'])); ?></span></td>
+                                                                    switch ($solicitud['estatus_solicitud']) {
+                                                                        case 'pendiente':
+                                                                            echo 'warning text-dark';
+                                                                            break;
+                                                                        case 'aprobada':
+                                                                            echo 'success';
+                                                                            break;
+                                                                        case 'rechazada':
+                                                                            echo 'danger';
+                                                                            break;
+                                                                        case 'en_curso':
+                                                                            echo 'primary';
+                                                                            break;
+                                                                        case 'completada':
+                                                                            echo 'secondary';
+                                                                            break;
+                                                                        case 'cancelada':
+                                                                            echo 'info';
+                                                                            break;
+                                                                    }
+                                                                    ?>"><?php echo htmlspecialchars(ucfirst($solicitud['estatus_solicitud'])); ?></span></td>
                                         <td><?php echo htmlspecialchars($solicitud['kilometraje_salida'] ?? 'N/A'); ?></td>
                                         <td><?php echo htmlspecialchars($solicitud['kilometraje_regreso'] ?? 'N/A'); ?></td>
                                         <td><?php echo htmlspecialchars(
-                                            ($solicitud['kilometraje_regreso'] !== null && $solicitud['kilometraje_salida'] !== null) ?
-                                            ($solicitud['kilometraje_regreso'] - $solicitud['kilometraje_salida']) : 'N/A'
-                                        ); ?></td>
+                                                ($solicitud['kilometraje_regreso'] !== null && $solicitud['kilometraje_salida'] !== null) ?
+                                                    ($solicitud['kilometraje_regreso'] - $solicitud['kilometraje_salida']) : 'N/A'
+                                            ); ?></td>
                                     </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -383,250 +390,257 @@ $report_data_json = json_encode($report_data);
                     </div>
                 <?php endif; ?>
             </div>
+
         </div>
 
-    </div>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+        <script src="js/main.js"></script>
+        <script>
+            // Pasamos los datos de PHP a JavaScript
+            const reportData = <?php echo $report_data_json; ?>;
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script> <script src="js/main.js"></script>
-    <script>
-        // Pasamos los datos de PHP a JavaScript
-        const reportData = <?php echo $report_data_json; ?>;
-
-        // Inicializar Flatpickr para los filtros de fecha
-        flatpickr("#start_date", { dateFormat: "Y-m-d" });
-        flatpickr("#end_date", { dateFormat: "Y-m-d" });
-
-        // Función para generar colores aleatorios (útil para gráficas de pastel)
-        function generateRandomColors(num) {
-            const colors = [];
-            for (let i = 0; i < num; i++) {
-                const r = Math.floor(Math.random() * 255);
-                const g = Math.floor(Math.random() * 255);
-                const b = Math.floor(Math.random() * 255);
-                colors.push(`rgba(${r}, ${g}, ${b}, 0.6)`);
-            }
-            return colors;
-        }
-
-        // --- Gráfica 1: Vehículos por Estatus (Pastel) ---
-        const ctxEstatus = document.getElementById('vehiculosEstatusChart');
-        if (reportData.vehiculos_por_estatus.length > 0) {
-            const estatusLabels = reportData.vehiculos_por_estatus.map(item => item.estatus.charAt(0).toUpperCase() + item.estatus.slice(1));
-            const estatusCounts = reportData.vehiculos_por_estatus.map(item => item.count);
-            const estatusColors = generateRandomColors(estatusLabels.length);
-
-            new Chart(ctxEstatus, {
-                type: 'pie',
-                data: {
-                    labels: estatusLabels,
-                    datasets: [{
-                        data: estatusCounts,
-                        backgroundColor: estatusColors,
-                        borderColor: '#fff',
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: {
-                            position: 'top',
-                        },
-                        title: {
-                            display: true,
-                            text: 'Distribución de Vehículos por Estatus'
-                        }
-                    }
-                }
+            // Inicializar Flatpickr para los filtros de fecha
+            flatpickr("#start_date", {
+                dateFormat: "Y-m-d"
             });
-        } else {
-            ctxEstatus.parentNode.innerHTML = '<p class="text-center text-muted">No hay datos de estatus de vehículos.</p>';
-        }
-
-        // --- Gráfica 2: Kilómetros Recorridos por Vehículo (Barras) ---
-        const ctxKm = document.getElementById('kilometrosVehiculoChart');
-        if (reportData.kilometros_por_vehiculo.length > 0) {
-            const kmLabels = reportData.kilometros_por_vehiculo.map(item => `${item.marca} <span class="math-inline">\{item\.modelo\} \(</span>{item.placas})`);
-            const kmData = reportData.kilometros_por_vehiculo.map(item => item.total_km);
-
-            new Chart(ctxKm, {
-                type: 'bar',
-                data: {
-                    labels: kmLabels,
-                    datasets: [{
-                        label: 'Kilómetros Recorridos',
-                        data: kmData,
-                        backgroundColor: 'rgba(54, 162, 235, 0.6)',
-                        borderColor: 'rgba(54, 162, 235, 1)',
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: {
-                            display: false
-                        },
-                        title: {
-                            display: true,
-                            text: 'Kilómetros Recorridos por Vehículo'
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            title: {
-                                display: true,
-                                text: 'Kilómetros'
-                            }
-                        }
-                    }
-                }
+            flatpickr("#end_date", {
+                dateFormat: "Y-m-d"
             });
-        } else {
-            ctxKm.parentNode.innerHTML = '<p class="text-center text-muted">No hay datos de kilómetros recorridos.</p>';
-        }
 
-        // --- Gráfica 3: Costos de Mantenimiento por Vehículo (Barras) ---
-        const ctxCostos = document.getElementById('costosMantenimientoChart');
-        if (reportData.costos_mantenimiento_por_vehiculo.length > 0) {
-            const costoLabels = reportData.costos_mantenimiento_por_vehiculo.map(item => `${item.marca} <span class="math-inline">\{item\.modelo\} \(</span>{item.placas})`);
-            const costoData = reportData.costos_mantenimiento_por_vehiculo.map(item => item.total_costo);
-
-            new Chart(ctxCostos, {
-                type: 'bar',
-                data: {
-                    labels: costoLabels,
-                    datasets: [{
-                        label: 'Costo Total de Mantenimiento',
-                        data: costoData,
-                        backgroundColor: 'rgba(255, 99, 132, 0.6)',
-                        borderColor: 'rgba(255, 99, 132, 1)',
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: {
-                            display: false
-                        },
-                        title: {
-                            display: true,
-                            text: 'Costos de Mantenimiento por Vehículo'
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            title: {
-                                display: true,
-                                text: 'Costo ($)'
-                            }
-                        }
-                    }
+            // Función para generar colores aleatorios (útil para gráficas de pastel)
+            function generateRandomColors(num) {
+                const colors = [];
+                for (let i = 0; i < num; i++) {
+                    const r = Math.floor(Math.random() * 255);
+                    const g = Math.floor(Math.random() * 255);
+                    const b = Math.floor(Math.random() * 255);
+                    colors.push(`rgba(${r}, ${g}, ${b}, 0.6)`);
                 }
-            });
-        } else {
-            ctxCostos.parentNode.innerHTML = '<p class="text-center text-muted">No hay datos de costos de mantenimiento.</p>';
-        }
-
-        // --- Gráfica 4: Uso de Vehículos por Mes (Líneas) ---
-        const ctxUsoMes = document.getElementById('usoVehiculosMesChart');
-        if (reportData.uso_vehiculos_por_mes.length > 0) {
-            const usoMesLabels = reportData.uso_vehiculos_por_mes.map(item => item.mes);
-            const usoMesData = reportData.uso_vehiculos_por_mes.map(item => item.count);
-
-            new Chart(ctxUsoMes, {
-                type: 'line',
-                data: {
-                    labels: usoMesLabels,
-                    datasets: [{
-                        label: 'Número de Solicitudes (Aprobadas/En Curso/Completadas)',
-                        data: usoMesData,
-                        fill: false,
-                        borderColor: 'rgb(75, 192, 192)',
-                        tension: 0.1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: {
-                            position: 'top',
-                        },
-                        title: {
-                            display: true,
-                            text: 'Uso de Vehículos por Mes'
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            title: {
-                                display: true,
-                                text: 'Número de Solicitudes'
-                            }
-                        }
-                    }
-                }
-            });
-        } else {
-            ctxUsoMes.parentNode.innerHTML = '<p class="text-center text-muted">No hay datos de uso por mes.</p>';
-        }
-
-        // --- Lógica para Descargar CSV ---
-        document.getElementById('downloadCsvBtn').addEventListener('click', function() {
-            const data = reportData.detalle_solicitudes_filtradas;
-            if (data.length === 0) {
-                alert('No hay datos para descargar.');
-                return;
+                return colors;
             }
 
-            // Generar encabezados del CSV
-            const headers = [
-                'ID Solicitud', 'Solicitante', 'Fecha Salida Deseada', 'Fecha Regreso Deseada',
-                'Proposito', 'Destino', 'Vehiculo Asignado', 'Estatus', 'KM Salida', 'KM Regreso', 'KM Recorridos'
-            ];
-            let csvContent = headers.join(',') + '\n';
+            // --- Gráfica 1: Vehículos por Estatus (Pastel) ---
+            const ctxEstatus = document.getElementById('vehiculosEstatusChart');
+            if (reportData.vehiculos_por_estatus.length > 0) {
+                const estatusLabels = reportData.vehiculos_por_estatus.map(item => item.estatus.charAt(0).toUpperCase() + item.estatus.slice(1));
+                const estatusCounts = reportData.vehiculos_por_estatus.map(item => item.count);
+                const estatusColors = generateRandomColors(estatusLabels.length);
 
-            // Generar filas del CSV
-            data.forEach(row => {
-                const vehiculoAsignado = row.marca ? `${row.marca} <span class="math-inline">\{row\.modelo\} \(</span>{row.placas})` : 'Sin asignar';
-                const kmRecorridos = (row.kilometraje_regreso !== null && row.kilometraje_salida !== null) ?
-                                    (row.kilometraje_regreso - row.kilometraje_salida) : 'N/A';
+                new Chart(ctxEstatus, {
+                    type: 'pie',
+                    data: {
+                        labels: estatusLabels,
+                        datasets: [{
+                            data: estatusCounts,
+                            backgroundColor: estatusColors,
+                            borderColor: '#fff',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                            },
+                            title: {
+                                display: true,
+                                text: 'Distribución de Vehículos por Estatus'
+                            }
+                        }
+                    }
+                });
+            } else {
+                ctxEstatus.parentNode.innerHTML = '<p class="text-center text-muted">No hay datos de estatus de vehículos.</p>';
+            }
 
-                const rowData = [
-                    row.solicitud_id,
-                    row.usuario_nombre,
-                    `"${new Date(row.fecha_salida_solicitada).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}"`, // Poner comillas por si hay comas o espacios
-                    `"${new Date(row.fecha_regreso_solicitada).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}"`,
-                    `"${row.proposito.replace(/"/g, '""')}"`, // Escapar comillas dobles
-                    `"${row.destino.replace(/"/g, '""')}"`,
-                    `"${vehiculoAsignado.replace(/"/g, '""')}"`,
-                    `"${row.estatus_solicitud.charAt(0).toUpperCase() + row.estatus_solicitud.slice(1)}"`,
-                    row.kilometraje_salida,
-                    row.kilometraje_regreso,
-                    kmRecorridos
+            // --- Gráfica 2: Kilómetros Recorridos por Vehículo (Barras) ---
+            const ctxKm = document.getElementById('kilometrosVehiculoChart');
+            if (reportData.kilometros_por_vehiculo.length > 0) {
+                const kmLabels = reportData.kilometros_por_vehiculo.map(item => `${item.marca} ${item.modelo} (${item.placas})`);
+                const kmData = reportData.kilometros_por_vehiculo.map(item => item.total_km);
+
+                new Chart(ctxKm, {
+                    type: 'bar',
+                    data: {
+                        labels: kmLabels,
+                        datasets: [{
+                            label: 'Kilómetros Recorridos',
+                            data: kmData,
+                            backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            title: {
+                                display: true,
+                                text: 'Kilómetros Recorridos por Vehículo'
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Kilómetros'
+                                }
+                            }
+                        }
+                    }
+                });
+            } else {
+                ctxKm.parentNode.innerHTML = '<p class="text-center text-muted">No hay datos de kilómetros recorridos.</p>';
+            }
+
+            // --- Gráfica 3: Costos de Mantenimiento por Vehículo (Barras) ---
+            const ctxCostos = document.getElementById('costosMantenimientoChart');
+            if (reportData.costos_mantenimiento_por_vehiculo.length > 0) {
+                const costoLabels = reportData.costos_mantenimiento_por_vehiculo.map(item => `${item.marca} ${item.modelo} (${item.placas})`);
+                const costoData = reportData.costos_mantenimiento_por_vehiculo.map(item => item.total_costo);
+
+                new Chart(ctxCostos, {
+                    type: 'bar',
+                    data: {
+                        labels: costoLabels,
+                        datasets: [{
+                            label: 'Costo Total de Mantenimiento',
+                            data: costoData,
+                            backgroundColor: 'rgba(255, 99, 132, 0.6)',
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            title: {
+                                display: true,
+                                text: 'Costos de Mantenimiento por Vehículo'
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Costo ($)'
+                                }
+                            }
+                        }
+                    }
+                });
+            } else {
+                ctxCostos.parentNode.innerHTML = '<p class="text-center text-muted">No hay datos de costos de mantenimiento.</p>';
+            }
+
+            // --- Gráfica 4: Uso de Vehículos por Mes (Líneas) ---
+            const ctxUsoMes = document.getElementById('usoVehiculosMesChart');
+            if (reportData.uso_vehiculos_por_mes.length > 0) {
+                const usoMesLabels = reportData.uso_vehiculos_por_mes.map(item => item.mes);
+                const usoMesData = reportData.uso_vehiculos_por_mes.map(item => item.count);
+
+                new Chart(ctxUsoMes, {
+                    type: 'line',
+                    data: {
+                        labels: usoMesLabels,
+                        datasets: [{
+                            label: 'Número de Solicitudes (Aprobadas/En Curso/Completadas)',
+                            data: usoMesData,
+                            fill: false,
+                            borderColor: 'rgb(75, 192, 192)',
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                            },
+                            title: {
+                                display: true,
+                                text: 'Uso de Vehículos por Mes'
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Número de Solicitudes'
+                                }
+                            }
+                        }
+                    }
+                });
+            } else {
+                ctxUsoMes.parentNode.innerHTML = '<p class="text-center text-muted">No hay datos de uso por mes.</p>';
+            }
+
+            // --- Lógica para Descargar CSV ---
+            document.getElementById('downloadCsvBtn').addEventListener('click', function() {
+                const data = reportData.detalle_solicitudes_filtradas;
+                if (data.length === 0) {
+                    alert('No hay datos para descargar.');
+                    return;
+                }
+
+                // Generar encabezados del CSV
+                const headers = [
+                    'ID Solicitud', 'Solicitante', 'Fecha Salida Deseada', 'Fecha Regreso Deseada',
+                    'Evento', 'Descripcion', 'Destino', 'Vehiculo Asignado', 'Estatus', 'KM Salida', 'KM Regreso', 'KM Recorridos'
                 ];
-                csvContent += rowData.join(',') + '\n';
+                let csvContent = headers.join(',') + '\n';
+
+                // Generar filas del CSV
+                data.forEach(row => {
+                    const vehiculoAsignado = row.marca ? `${row.marca} ${row.modelo} (${row.placas})` : 'Sin asignar';
+                    const kmRecorridos = (row.kilometraje_regreso !== null && row.kilometraje_salida !== null) ?
+                        (row.kilometraje_regreso - row.kilometraje_salida) : 'N/A';
+
+                    const rowData = [
+                        row.solicitud_id,
+                        row.usuario_nombre,
+                        `"${new Date(row.fecha_salida_solicitada).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}"`,
+                        `"${new Date(row.fecha_regreso_solicitada).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}"`,
+                        `"${row.evento.replace(/"/g, '""')}"`, // Escapar comillas dobles
+                        `"${row.descripcion.replace(/"/g, '""')}"`, // Escapar comillas dobles
+                        `"${row.destino.replace(/"/g, '""')}"`,
+                        `"${vehiculoAsignado.replace(/"/g, '""')}"`,
+                        `"${row.estatus_solicitud.charAt(0).toUpperCase() + row.estatus_solicitud.slice(1)}"`,
+                        row.kilometraje_salida,
+                        row.kilometraje_regreso,
+                        kmRecorridos
+                    ];
+                    csvContent += rowData.join(',') + '\n';
+                });
+
+                // Crear y descargar el archivo CSV
+                const blob = new Blob([csvContent], {
+                    type: 'text/csv;charset=utf-8;'
+                });
+                const link = document.createElement('a');
+                const url = URL.createObjectURL(blob);
+                const today = new Date();
+                const fileName = `reporte_solicitudes_${today.getFullYear()}-${(today.getMonth()+1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}.csv`;
+                link.setAttribute('href', url);
+                link.setAttribute('download', fileName);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
             });
-
-            // Crear y descargar el archivo CSV
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-            const today = new Date();
-            const fileName = `reporte_solicitudes_${today.getFullYear()}-<span class="math-inline">\{\(today\.getMonth\(\)\+1\)\.toString\(\)\.padStart\(2, '0'\)\}\-</span>{today.getDate().toString().padStart(2, '0')}.csv`;
-            link.setAttribute('href', url);
-            link.setAttribute('download', fileName);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        });
-
-    </script>
+        </script>
 </body>
+
 </html>

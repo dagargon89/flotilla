@@ -1,10 +1,9 @@
 <?php
-// public/api/get_calendar_events.php
-// Este script devuelve eventos (reservas) en formato JSON para FullCalendar
+// public/api/get_calendar_events.php - CÓDIGO COMPLETO Y ACTUALIZADO (Con EVENTO y DESCRIPCION)
 
 header('Content-Type: application/json'); // ¡Importante! Le dice al navegador que es JSON
 
-require_once '../../app/config/database.php'; // Ruta a tu archivo de conexión (sube 2 niveles desde public/api/)
+require_once '../../app/config/database.php'; // Ruta a tu archivo de conexión
 
 $db = connectDB();
 $events = []; // Array donde guardaremos los eventos
@@ -21,7 +20,8 @@ if ($db) {
                 s.id AS solicitud_id,
                 s.fecha_salida_solicitada AS start_date,
                 s.fecha_regreso_solicitada AS end_date,
-                s.proposito,
+                s.evento,             /* <<-- NUEVO */
+                s.descripcion,        /* <<-- RENOMBRADO */
                 s.estatus_solicitud,
                 u.nombre AS usuario_nombre,
                 v.marca,
@@ -56,20 +56,20 @@ if ($db) {
 
             $events[] = [
                 'id' => $solicitud['solicitud_id'],
-                'title' => $solicitud['marca'] . ' ' . $solicitud['modelo'] . ' (' . $solicitud['placas'] . ') - ' . $solicitud['usuario_nombre'],
+                'title' => $solicitud['evento'] . ' - ' . $solicitud['placas'], // Título del evento en el calendario
                 'start' => $solicitud['start_date'],
                 'end' => $solicitud['end_date'],
                 'color' => $color, // Color del evento
                 'allDay' => false, // Las solicitudes tienen hora, no son de todo el día
-                'extendedProps' => [ // Datos adicionales que puedes usar en el frontend
-                    'proposito' => $solicitud['proposito'],
+                'extendedProps' => [ // Datos adicionales que puedes usar
+                    'evento' => $solicitud['evento'],              /* <<-- NUEVO */
+                    'descripcion' => $solicitud['descripcion'],    /* <<-- RENOMBRADO */
                     'estatus' => $solicitud['estatus_solicitud'],
                     'solicitante' => $solicitud['usuario_nombre'],
                     'vehiculo' => $solicitud['marca'] . ' ' . $solicitud['modelo'] . ' (' . $solicitud['placas'] . ')'
                 ]
             ];
         }
-
     } catch (PDOException $e) {
         error_log("Error al obtener eventos del calendario: " . $e->getMessage());
         echo json_encode(['error' => 'Error al cargar eventos: ' . $e->getMessage()]);
@@ -82,4 +82,3 @@ if ($db) {
 
 // Devuelve los eventos en formato JSON
 echo json_encode($events);
-?>

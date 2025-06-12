@@ -1,5 +1,5 @@
 <?php
-// public/mis_solicitudes.php - CÓDIGO COMPLETO CON REGISTRO DE USO Y EVIDENCIAS
+// public/mis_solicitudes.php - CÓDIGO COMPLETO Y CORREGIDO (ÚLTIMA VERSIÓN)
 session_start();
 require_once '../app/config/database.php';
 
@@ -10,11 +10,8 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $user_id = $_SESSION['user_id'];
-$nombre_usuario = $_SESSION['user_name'];
-$rol_usuario = $_SESSION['user_role'];
 $nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
 $rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
-
 
 $success_message = '';
 $error_message = '';
@@ -22,13 +19,11 @@ $db = connectDB();
 $solicitudes_usuario = [];
 
 // Ruta base para guardar las imágenes (FUERA DE PUBLIC_HTML POR SEGURIDAD)
-// Asegúrate de que esta ruta sea accesible por PHP y que el usuario del servidor web tenga permisos de escritura.
-// Ejemplo: /var/www/html/flotilla/storage/uploads/vehiculo_evidencias/
 $upload_dir = __DIR__ . '/../storage/uploads/vehiculo_evidencias/';
 
 // Asegúrate de que el directorio de subida exista y tenga permisos de escritura
 if (!is_dir($upload_dir)) {
-    mkdir($upload_dir, 0755, true); // Crea el directorio si no existe con permisos
+    mkdir($upload_dir, 0755, true);
 }
 if (!is_writable($upload_dir)) {
     $error_message .= 'Error: El directorio de subida de imágenes no tiene permisos de escritura. Por favor, configura los permisos de la carpeta: ' . htmlspecialchars($upload_dir);
@@ -43,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_uso'])) {
     $kilometraje = filter_var($_POST['kilometraje'] ?? null, FILTER_VALIDATE_INT);
     $nivel_combustible = filter_var($_POST['nivel_combustible'] ?? null, FILTER_VALIDATE_FLOAT);
     $observaciones = trim($_POST['observaciones'] ?? '');
-    
+
     // Para las fotos
     $fotos_urls = [];
     $uploaded_files = $_FILES['fotos'] ?? [];
@@ -70,8 +65,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_uso'])) {
                         $destination_path = $upload_dir . $new_file_name;
 
                         if (move_uploaded_file($tmp_name, $destination_path)) {
-                            // Guarda la ruta relativa o una URL si el servidor web la sirve directamente
-                            // Por ahora, guardamos la ruta relativa desde la raíz del proyecto para luego servirla
                             $fotos_urls[] = '/flotilla/storage/uploads/vehiculo_evidencias/' . $new_file_name;
                         } else {
                             throw new Exception("Error al mover el archivo subido: " . $name);
@@ -83,7 +76,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_uso'])) {
             }
 
             if ($action_uso === 'marcar_salida') {
-                // Verificar que la solicitud esté APROBADA y no tenga un historial_uso_vehiculos ya creado
                 $stmt_check = $db->prepare("SELECT vehiculo_id, estatus_solicitud FROM solicitudes_vehiculos WHERE id = :solicitud_id AND usuario_id = :user_id FOR UPDATE");
                 $stmt_check->bindParam(':solicitud_id', $solicitud_id);
                 $stmt_check->bindParam(':user_id', $user_id);
@@ -94,7 +86,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_uso'])) {
                     throw new Exception("La solicitud no está aprobada o no tiene un vehículo asignado para marcar la salida.");
                 }
 
-                // Insertar un nuevo registro en historial_uso_vehiculos
                 $stmt_insert = $db->prepare("INSERT INTO historial_uso_vehiculos (solicitud_id, vehiculo_id, usuario_id, kilometraje_salida, nivel_combustible_salida, fecha_salida_real, observaciones_salida, fotos_salida_url) VALUES (:solicitud_id, :vehiculo_id, :usuario_id, :kilometraje, :nivel_combustible, NOW(), :observaciones, :fotos_urls)");
                 $stmt_insert->bindParam(':solicitud_id', $solicitud_id);
                 $stmt_insert->bindParam(':vehiculo_id', $solicitud_info['vehiculo_id']);
@@ -102,24 +93,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_uso'])) {
                 $stmt_insert->bindParam(':kilometraje', $kilometraje);
                 $stmt_insert->bindParam(':nivel_combustible', $nivel_combustible);
                 $stmt_insert->bindParam(':observaciones', $observaciones);
-                $stmt_insert->bindValue(':fotos_urls', json_encode($fotos_urls), PDO::PARAM_STR); // Guarda como JSON
+                $stmt_insert->bindValue(':fotos_urls', json_encode($fotos_urls), PDO::PARAM_STR);
                 $stmt_insert->execute();
 
-                // Actualizar el estatus de la solicitud a 'en_curso'
                 $stmt_update_sol = $db->prepare("UPDATE solicitudes_vehiculos SET estatus_solicitud = 'en_curso' WHERE id = :solicitud_id");
                 $stmt_update_sol->bindParam(':solicitud_id', $solicitud_id);
                 $stmt_update_sol->execute();
 
-                // Actualizar el kilometraje del vehículo y estatus a 'en_uso'
                 $stmt_update_veh = $db->prepare("UPDATE vehiculos SET kilometraje_actual = :kilometraje, estatus = 'en_uso' WHERE id = :vehiculo_id");
                 $stmt_update_veh->bindParam(':kilometraje', $kilometraje);
                 $stmt_update_veh->bindParam(':vehiculo_id', $solicitud_info['vehiculo_id']);
                 $stmt_update_veh->execute();
 
                 $success_message = '¡Salida del vehículo registrada con éxito!';
-
             } elseif ($action_uso === 'marcar_regreso') {
-                // Obtener el registro de historial_uso_vehiculos existente para esta solicitud
                 $stmt_hist = $db->prepare("SELECT id, vehiculo_id, kilometraje_salida FROM historial_uso_vehiculos WHERE solicitud_id = :solicitud_id");
                 $stmt_hist->bindParam(':solicitud_id', $solicitud_id);
                 $stmt_hist->execute();
@@ -131,8 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_uso'])) {
                 if ($kilometraje < $historial_entry['kilometraje_salida']) {
                     throw new Exception("El kilometraje de regreso no puede ser menor que el de salida.");
                 }
-                
-                // Actualizar el registro en historial_uso_vehiculos
+
                 $stmt_update_hist = $db->prepare("UPDATE historial_uso_vehiculos SET kilometraje_regreso = :kilometraje, nivel_combustible_regreso = :nivel_combustible, fecha_regreso_real = NOW(), observaciones_regreso = :observaciones, fotos_regreso_url = :fotos_urls WHERE id = :historial_id");
                 $stmt_update_hist->bindParam(':kilometraje', $kilometraje);
                 $stmt_update_hist->bindParam(':nivel_combustible', $nivel_combustible);
@@ -141,12 +127,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_uso'])) {
                 $stmt_update_hist->bindParam(':historial_id', $historial_entry['id']);
                 $stmt_update_hist->execute();
 
-                // Actualizar el estatus de la solicitud a 'completada'
                 $stmt_update_sol = $db->prepare("UPDATE solicitudes_vehiculos SET estatus_solicitud = 'completada' WHERE id = :solicitud_id");
                 $stmt_update_sol->bindParam(':solicitud_id', $solicitud_id);
                 $stmt_update_sol->execute();
 
-                // Actualizar el kilometraje del vehículo y estatus a 'disponible'
                 $stmt_update_veh = $db->prepare("UPDATE vehiculos SET kilometraje_actual = :kilometraje, estatus = 'disponible' WHERE id = :vehiculo_id");
                 $stmt_update_veh->bindParam(':kilometraje', $kilometraje);
                 $stmt_update_veh->bindParam(':vehiculo_id', $historial_entry['vehiculo_id']);
@@ -156,9 +140,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_uso'])) {
             }
 
             $db->commit();
-            header('Location: mis_solicitudes.php?success=' . urlencode($success_message)); // Recargar para ver los cambios
+            header('Location: mis_solicitudes.php?success=' . urlencode($success_message));
             exit();
-
         } catch (Exception $e) {
             $db->rollBack();
             error_log("Error en registro de uso: " . $e->getMessage());
@@ -170,22 +153,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_uso'])) {
 // --- Obtener las solicitudes del usuario logueado y su historial ---
 if ($db) {
     try {
-        // Solicitudes del usuario
         $stmt_solicitudes = $db->prepare("
             SELECT
                 s.id AS solicitud_id,
                 s.fecha_salida_solicitada,
                 s.fecha_regreso_solicitada,
-                s.proposito,
+                s.evento,
+                s.descripcion,
                 s.destino,
                 s.estatus_solicitud,
                 v.marca,
                 v.modelo,
                 v.placas,
-                v.id AS vehiculo_id, -- Necesario para los modales
+                v.id AS vehiculo_id,
                 s.fecha_creacion,
                 s.observaciones_aprobacion,
-                hu.id AS historial_id, -- ID del historial de uso si existe
+                hu.id AS historial_id,
                 hu.kilometraje_salida,
                 hu.nivel_combustible_salida,
                 hu.fecha_salida_real,
@@ -205,7 +188,6 @@ if ($db) {
         $stmt_solicitudes->bindParam(':user_id', $user_id);
         $stmt_solicitudes->execute();
         $solicitudes_usuario = $stmt_solicitudes->fetchAll(PDO::FETCH_ASSOC);
-
     } catch (PDOException $e) {
         error_log("Error al cargar mis solicitudes y historial: " . $e->getMessage());
         $error_message = 'No se pudieron cargar tus solicitudes o historial en este momento.';
@@ -223,6 +205,7 @@ if (isset($_GET['error'])) {
 
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -230,16 +213,20 @@ if (isset($_GET['error'])) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
 </head>
+
 <body>
-<?php require_once '../app/includes/navbar.php'; // Incluir la barra de navegación ?>
+    <?php
+    $nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
+    $rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
+    require_once '../app/includes/navbar.php';
+    ?>
 
     <div class="container mt-4">
         <h1 class="mb-4">Mis Solicitudes y Historial de Uso</h1>
 
         <?php if (!empty($success_message)): ?>
             <div class="alert alert-success" role="alert">
-                <?php echo $success_message; ?>
-            </div>
+                <?php echo $success_message; ?> </div>
         <?php endif; ?>
 
         <?php if (!empty($error_message)): ?>
@@ -260,7 +247,8 @@ if (isset($_GET['error'])) {
                             <th>ID Sol.</th>
                             <th>Salida Deseada</th>
                             <th>Regreso Deseada</th>
-                            <th>Propósito</th>
+                            <th>Evento</th>
+                            <th>Descripción</th>
                             <th>Vehículo Asignado</th>
                             <th>Estatus</th>
                             <th>Acciones</th>
@@ -273,7 +261,8 @@ if (isset($_GET['error'])) {
                                 <td><?php echo htmlspecialchars($solicitud['solicitud_id']); ?></td>
                                 <td><?php echo date('d/m/Y H:i', strtotime($solicitud['fecha_salida_solicitada'])); ?></td>
                                 <td><?php echo date('d/m/Y H:i', strtotime($solicitud['fecha_regreso_solicitada'])); ?></td>
-                                <td><?php echo htmlspecialchars($solicitud['proposito']); ?></td>
+                                <td><?php echo htmlspecialchars($solicitud['evento']); ?></td>
+                                <td><?php echo htmlspecialchars($solicitud['descripcion']); ?></td>
                                 <td>
                                     <?php if ($solicitud['marca']): ?>
                                         <?php echo htmlspecialchars($solicitud['marca'] . ' ' . $solicitud['modelo'] . ' (' . $solicitud['placas'] . ')'); ?>
@@ -283,15 +272,27 @@ if (isset($_GET['error'])) {
                                 </td>
                                 <td>
                                     <?php
-                                        $status_class = '';
-                                        switch ($solicitud['estatus_solicitud']) {
-                                            case 'pendiente': $status_class = 'badge bg-warning text-dark'; break;
-                                            case 'aprobada': $status_class = 'badge bg-success'; break;
-                                            case 'rechazada': $status_class = 'badge bg-danger'; break;
-                                            case 'en_curso': $status_class = 'badge bg-primary'; break;
-                                            case 'completada': $status_class = 'badge bg-secondary'; break;
-                                            case 'cancelada': $status_class = 'badge bg-info'; break;
-                                        }
+                                    $status_class = '';
+                                    switch ($solicitud['estatus_solicitud']) {
+                                        case 'pendiente':
+                                            $status_class = 'badge bg-warning text-dark';
+                                            break;
+                                        case 'aprobada':
+                                            $status_class = 'badge bg-success';
+                                            break;
+                                        case 'rechazada':
+                                            $status_class = 'badge bg-danger';
+                                            break;
+                                        case 'en_curso':
+                                            $status_class = 'badge bg-primary';
+                                            break;
+                                        case 'completada':
+                                            $status_class = 'badge bg-secondary';
+                                            break;
+                                        case 'cancelada':
+                                            $status_class = 'badge bg-info';
+                                            break;
+                                    }
                                     ?>
                                     <span class="<?php echo $status_class; ?>"><?php echo htmlspecialchars(ucfirst($solicitud['estatus_solicitud'])); ?></span>
                                 </td>
@@ -299,27 +300,23 @@ if (isset($_GET['error'])) {
                                     <?php
                                     // Determinar qué botón mostrar según el estatus
                                     if ($solicitud['estatus_solicitud'] === 'aprobada' && empty($solicitud['historial_id'])):
-                                        // Muestra botón de Marcar Salida si está aprobada y no tiene historial de uso
                                     ?>
                                         <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#useVehicleModal"
                                             data-action="marcar_salida"
                                             data-solicitud-id="<?php echo htmlspecialchars($solicitud['solicitud_id']); ?>"
                                             data-vehiculo-id="<?php echo htmlspecialchars($solicitud['vehiculo_id']); ?>"
                                             data-vehiculo-info="<?php echo htmlspecialchars($solicitud['marca'] . ' ' . $solicitud['modelo'] . ' - ' . $solicitud['placas']); ?>"
-                                            data-kilometraje-actual="<?php echo htmlspecialchars($solicitud['kilometraje_actual'] ?? 0); ?>"
-                                        >
+                                            data-kilometraje-actual="<?php echo htmlspecialchars($solicitud['kilometraje_actual'] ?? 0); ?>">
                                             Marcar Salida
                                         </button>
                                     <?php elseif ($solicitud['estatus_solicitud'] === 'en_curso' && !empty($solicitud['historial_id'])):
-                                        // Muestra botón de Marcar Regreso si está en curso
                                     ?>
                                         <button type="button" class="btn btn-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#useVehicleModal"
                                             data-action="marcar_regreso"
                                             data-solicitud-id="<?php echo htmlspecialchars($solicitud['solicitud_id']); ?>"
                                             data-vehiculo-id="<?php echo htmlspecialchars($solicitud['vehiculo_id']); ?>"
                                             data-vehiculo-info="<?php echo htmlspecialchars($solicitud['marca'] . ' ' . $solicitud['modelo'] . ' - ' . $solicitud['placas']); ?>"
-                                            data-kilometraje-actual="<?php echo htmlspecialchars($solicitud['kilometraje_actual'] ?? 0); ?>"
-                                        >
+                                            data-kilometraje-actual="<?php echo htmlspecialchars($solicitud['kilometraje_actual'] ?? 0); ?>">
                                             Marcar Regreso
                                         </button>
                                     <?php else: ?>
@@ -330,12 +327,13 @@ if (isset($_GET['error'])) {
                                     <button type="button" class="btn btn-sm btn-info text-white" data-bs-toggle="modal" data-bs-target="#viewDetailsModal"
                                         data-solicitud-id="<?php echo htmlspecialchars($solicitud['solicitud_id']); ?>"
                                         data-fecha-salida="<?php echo htmlspecialchars($solicitud['fecha_salida_solicitada']); ?>"
-                                        data-fecha-regreso="<?php echo htmlspecialchars($solicitud['fecha_regreso_solicitada']); ?>"
-                                        data-proposito="<?php echo htmlspecialchars($solicitud['proposito']); ?>"
+                                        data-fecha-regreso="<?php echo htmlspecialchars($solicitud['fecha_regreso_solicitada'] ?? ''); ?>"
+                                        data-evento="<?php echo htmlspecialchars($solicitud['evento']); ?>"
+                                        data-descripcion="<?php echo htmlspecialchars($solicitud['descripcion']); ?>"
                                         data-destino="<?php echo htmlspecialchars($solicitud['destino']); ?>"
                                         data-vehiculo-info="<?php echo htmlspecialchars($solicitud['marca'] ? $solicitud['marca'] . ' ' . $solicitud['modelo'] . ' (' . $solicitud['placas'] . ')' : 'Sin asignar'); ?>"
                                         data-estatus="<?php echo htmlspecialchars(ucfirst($solicitud['estatus_solicitud'])); ?>"
-                                        data-observaciones-aprobacion="<?php echo htmlspecialchars($solicitud['observaciones_aprobacion']); ?>"
+                                        data-observaciones-aprobacion="<?php echo htmlspecialchars($solicitud['observaciones_aprobacion'] ?? ''); ?>"
                                         data-historial-id="<?php echo htmlspecialchars($solicitud['historial_id'] ?? ''); ?>"
                                         data-km-salida="<?php echo htmlspecialchars($solicitud['kilometraje_salida'] ?? ''); ?>"
                                         data-gas-salida="<?php echo htmlspecialchars($solicitud['nivel_combustible_salida'] ?? ''); ?>"
@@ -346,8 +344,7 @@ if (isset($_GET['error'])) {
                                         data-gas-regreso="<?php echo htmlspecialchars($solicitud['nivel_combustible_regreso'] ?? ''); ?>"
                                         data-fecha-regreso-real="<?php echo htmlspecialchars($solicitud['fecha_regreso_real'] ?? ''); ?>"
                                         data-obs-regreso="<?php echo htmlspecialchars($solicitud['observaciones_regreso'] ?? ''); ?>"
-                                        data-fotos-regreso="<?php echo htmlspecialchars($solicitud['fotos_regreso_url'] ?? '[]'); ?>"
-                                    >
+                                        data-fotos-regreso="<?php echo htmlspecialchars($solicitud['fotos_regreso_url'] ?? '[]'); ?>">
                                         Ver Detalles
                                     </button>
                                 </td>
@@ -411,12 +408,13 @@ if (isset($_GET['error'])) {
                         <h6>Detalles de la Solicitud:</h6>
                         <p><strong>Salida Deseada:</strong> <span id="detailFechaSalida"></span></p>
                         <p><strong>Regreso Deseado:</strong> <span id="detailFechaRegreso"></span></p>
-                        <p><strong>Propósito:</strong> <span id="detailProposito"></span></p>
+                        <p><strong>Evento:</strong> <span id="detailEvento"></span></p>
+                        <p><strong>Descripción:</strong> <span id="detailDescripcion"></span></p>
                         <p><strong>Destino:</strong> <span id="detailDestino"></span></p>
                         <p><strong>Vehículo Asignado:</strong> <span id="detailVehiculoAsignado"></span></p>
                         <p><strong>Estatus:</strong> <span id="detailEstatus" class="badge"></span></p>
                         <p><strong>Observaciones del Gestor:</strong> <span id="detailObservacionesAprobacion"></span></p>
-                        
+
                         <h6 class="mt-4">Registro de Salida del Vehículo:</h6>
                         <div id="salidaDetails">
                             <p><strong>Kilometraje de Salida:</strong> <span id="detailKmSalida"></span> KM</p>
@@ -424,7 +422,7 @@ if (isset($_GET['error'])) {
                             <p><strong>Fecha y Hora de Salida Real:</strong> <span id="detailFechaSalidaReal"></span></p>
                             <p><strong>Observaciones al Salir:</strong> <span id="detailObsSalida"></span></p>
                             <div class="row" id="detailFotosSalida">
-                                </div>
+                            </div>
                         </div>
                         <div id="noSalidaDetails" class="alert alert-info text-center" style="display: none;">
                             Aún no se ha registrado la salida de este vehículo.
@@ -437,7 +435,7 @@ if (isset($_GET['error'])) {
                             <p><strong>Fecha y Hora de Regreso Real:</strong> <span id="detailFechaRegresoReal"></span></p>
                             <p><strong>Observaciones al Regresar:</strong> <span id="detailObsRegreso"></span></p>
                             <div class="row" id="detailFotosRegreso">
-                                </div>
+                            </div>
                         </div>
                         <div id="noRegresoDetails" class="alert alert-info text-center" style="display: none;">
                             Aún no se ha registrado el regreso de este vehículo.
@@ -458,9 +456,9 @@ if (isset($_GET['error'])) {
         // JavaScript para manejar el modal de Marcar Salida/Regreso
         document.addEventListener('DOMContentLoaded', function() {
             var useVehicleModal = document.getElementById('useVehicleModal');
-            useVehicleModal.addEventListener('show.bs.modal', function (event) {
-                var button = event.relatedTarget; // Botón que activó el modal
-                var action = button.getAttribute('data-action'); // 'marcar_salida' o 'marcar_regreso'
+            useVehicleModal.addEventListener('show.bs.modal', function(event) {
+                var button = event.relatedTarget;
+                var action = button.getAttribute('data-action');
                 var solicitudId = button.getAttribute('data-solicitud-id');
                 var vehiculoId = button.getAttribute('data-vehiculo-id');
                 var vehiculoInfo = button.getAttribute('data-vehiculo-info');
@@ -476,60 +474,98 @@ if (isset($_GET['error'])) {
                 var useSubmitBtn = useVehicleModal.querySelector('#useSubmitBtn');
                 var form = useVehicleModal.querySelector('form');
 
-                // Resetear el formulario
                 form.reset();
 
                 useSolicitudId.value = solicitudId;
                 useVehiculoId.value = vehiculoId;
                 useVehicleInfo.textContent = vehiculoInfo;
-                kilometrajeInput.value = kilometrajeActual; // Precarga con el KM actual del vehículo
-                
+                kilometrajeInput.value = kilometrajeActual;
+
                 if (action === 'marcar_salida') {
                     modalTitle.textContent = 'Marcar Salida del Vehículo';
                     useAction.value = 'marcar_salida';
                     useSubmitBtn.textContent = 'Registrar Salida';
                     useSubmitBtn.className = 'btn btn-primary';
                     currentKmHint.textContent = 'Kilometraje actual del vehículo: ' + kilometrajeActual + ' KM (debe ser mayor o igual)';
-                    kilometrajeInput.min = kilometrajeActual; // KM de salida no puede ser menor
+                    kilometrajeInput.min = kilometrajeActual;
                 } else if (action === 'marcar_regreso') {
                     modalTitle.textContent = 'Marcar Regreso del Vehículo';
                     useAction.value = 'marcar_regreso';
                     useSubmitBtn.textContent = 'Registrar Regreso';
                     useSubmitBtn.className = 'btn btn-secondary';
-                    // Para el regreso, podríamos querer cargar el kilometraje de salida como min
-                    // Si el kilometraje de salida se cargara dinámicamente en el modal, usarlo aquí
-                    // Por ahora, simplemente se usa el KM actual del vehículo como referencia
                     currentKmHint.textContent = 'Kilometraje de salida registrado: X KM (el de regreso debe ser mayor)';
-                    // Necesitaríamos AJAX para cargar el kilometraje_salida del historial_uso_vehiculos
-                    // para establecer el min del kilometrajeInput correctamente aquí.
-                    // Por simplicidad, se puede dejar el min en 0 o validar en PHP.
                 }
             });
 
+            // Función para formatear fechas para la lista y modales (Solución para "Invalid Date" más robusta)
+            function formatDateTime(dateTimeString) {
+                // Manejar valores null, cadenas vacías o la fecha "cero" de MySQL
+                if (!dateTimeString || dateTimeString === '0000-00-00 00:00:00') {
+                    return 'N/A';
+                }
+                // Reemplazar el espacio con 'T' para asegurar el formato ISO 8601
+                const isoDateTimeString = dateTimeString.replace(' ', 'T');
+                let date = new Date(isoDateTimeString);
+
+                // Si new Date() aún no funciona (ej. en Safari con algunos formatos), intentar parseo manual
+                if (isNaN(date.getTime())) {
+                    const parts = dateTimeString.match(/(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+                    if (parts) {
+                        // Crear fecha en UTC para evitar problemas de zona horaria si no se especifica
+                        date = new Date(Date.UTC(parts[1], parts[2] - 1, parts[3], parts[4], parts[5], parts[6]));
+                    } else {
+                        console.error("Fecha inválida no parseable:", dateTimeString);
+                        return 'Fecha Inválida';
+                    }
+                }
+
+                const options = {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true // Para que te dé AM/PM
+                };
+                return date.toLocaleString('es-MX', options);
+            }
+
             // JavaScript para manejar el modal de Ver Detalles
             var viewDetailsModal = document.getElementById('viewDetailsModal');
-            viewDetailsModal.addEventListener('show.bs.modal', function (event) {
-                var button = event.relatedTarget; // Botón que activó el modal
+            viewDetailsModal.addEventListener('show.bs.modal', function(event) {
+                var button = event.relatedTarget;
 
-                // Detalles de la Solicitud
-                document.getElementById('detailFechaSalida').textContent = new Date(button.getAttribute('data-fecha-salida')).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
-                document.getElementById('detailFechaRegreso').textContent = new Date(button.getAttribute('data-fecha-regreso')).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
-                document.getElementById('detailProposito').textContent = button.getAttribute('data-proposito');
+                document.getElementById('detailFechaSalida').textContent = formatDateTime(button.getAttribute('data-fecha-salida'));
+                document.getElementById('detailFechaRegreso').textContent = formatDateTime(button.getAttribute('data-regreso'));
+                document.getElementById('detailEvento').textContent = button.getAttribute('data-evento');
+                document.getElementById('detailDescripcion').textContent = button.getAttribute('data-descripcion');
                 document.getElementById('detailDestino').textContent = button.getAttribute('data-destino');
                 document.getElementById('detailVehiculoAsignado').textContent = button.getAttribute('data-vehiculo-info');
-                
+
                 var statusBadge = document.getElementById('detailEstatus');
                 statusBadge.textContent = button.getAttribute('data-estatus');
-                statusBadge.className = 'badge'; // Resetear clases
+                statusBadge.className = 'badge';
                 switch (button.getAttribute('data-estatus').toLowerCase()) {
-                    case 'pendiente': statusBadge.classList.add('bg-warning', 'text-dark'); break;
-                    case 'aprobada': statusBadge.classList.add('bg-success'); break;
-                    case 'rechazada': statusBadge.classList.add('bg-danger'); break;
-                    case 'en_curso': statusBadge.classList.add('bg-primary'); break;
-                    case 'completada': statusBadge.classList.add('bg-secondary'); break;
-                    case 'cancelada': statusBadge.classList.add('bg-info'); break;
+                    case 'pendiente':
+                        statusBadge.classList.add('bg-warning', 'text-dark');
+                        break;
+                    case 'aprobada':
+                        statusBadge.classList.add('bg-success');
+                        break;
+                    case 'rechazada':
+                        statusBadge.classList.add('bg-danger');
+                        break;
+                    case 'en_curso':
+                        statusBadge.classList.add('bg-primary');
+                        break;
+                    case 'completada':
+                        statusBadge.classList.add('bg-secondary');
+                        break;
+                    case 'cancelada':
+                        statusBadge.classList.add('bg-info');
+                        break;
                 }
-                document.getElementById('detailObservacionesAprobacion').textContent = button.getAttribute('data-observaciones-aprobacion') || 'N/A';
+                document.getElementById('detailObservacionesAprobacion').textContent = button.getAttribute('data-observaciones-aprobacion'); // Ya usa || 'N/A' en PHP si es nulo
 
                 // Detalles de Salida
                 var historialId = button.getAttribute('data-historial-id');
@@ -543,12 +579,12 @@ if (isset($_GET['error'])) {
                     noSalidaDetails.style.display = 'none';
                     document.getElementById('detailKmSalida').textContent = button.getAttribute('data-km-salida');
                     document.getElementById('detailGasSalida').textContent = button.getAttribute('data-gas-salida');
-                    document.getElementById('detailFechaSalidaReal').textContent = new Date(button.getAttribute('data-fecha-salida-real')).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
+                    document.getElementById('detailFechaSalidaReal').textContent = formatDateTime(button.getAttribute('data-fecha-salida-real'));
                     document.getElementById('detailObsSalida').textContent = button.getAttribute('data-obs-salida') || 'Ninguna.';
-                    
+
                     // Cargar fotos de salida
                     var fotosSalidaContainer = document.getElementById('detailFotosSalida');
-                    fotosSalidaContainer.innerHTML = ''; // Limpiar fotos anteriores
+                    fotosSalidaContainer.innerHTML = '';
                     var fotosSalidaUrls = JSON.parse(button.getAttribute('data-fotos-salida') || '[]');
                     if (fotosSalidaUrls.length > 0) {
                         fotosSalidaUrls.forEach(url => {
@@ -558,8 +594,8 @@ if (isset($_GET['error'])) {
                             img.src = url;
                             img.alt = 'Evidencia de salida';
                             img.className = 'img-fluid rounded shadow-sm';
-                            img.style.cursor = 'pointer'; // Para indicar que es clickeable
-                            img.onclick = () => window.open(url, '_blank'); // Abrir en nueva pestaña
+                            img.style.cursor = 'pointer';
+                            img.onclick = () => window.open(url, '_blank');
                             col.appendChild(img);
                             fotosSalidaContainer.appendChild(col);
                         });
@@ -568,12 +604,12 @@ if (isset($_GET['error'])) {
                     }
 
                     // Detalles de Regreso
-                    if (button.getAttribute('data-km-regreso')) { // Si hay kilometraje de regreso, mostrar detalles de regreso
+                    if (button.getAttribute('data-km-regreso') && button.getAttribute('data-fecha-regreso-real')) {
                         regresoDetails.style.display = 'block';
                         noRegresoDetails.style.display = 'none';
                         document.getElementById('detailKmRegreso').textContent = button.getAttribute('data-km-regreso');
                         document.getElementById('detailGasRegreso').textContent = button.getAttribute('data-gas-regreso');
-                        document.getElementById('detailFechaRegresoReal').textContent = new Date(button.getAttribute('data-fecha-regreso-real')).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
+                        document.getElementById('detailFechaRegresoReal').textContent = formatDateTime(button.getAttribute('data-fecha-regreso-real'));
                         document.getElementById('detailObsRegreso').textContent = button.getAttribute('data-obs-regreso') || 'Ninguna.';
 
                         // Cargar fotos de regreso
@@ -612,4 +648,5 @@ if (isset($_GET['error'])) {
         });
     </script>
 </body>
+
 </html>

@@ -1,8 +1,10 @@
 <?php
-// public/api/get_vehiculo_availability.php - CÓDIGO ACTUALIZADO CON MÁS DETALLES
-header('Content-Type: application/json');
+// public/api/get_vehiculo_availability.php - CÓDIGO COMPLETO Y ACTUALIZADO (Con EVENTO y DESCRIPCION)
+// API para obtener la disponibilidad de un vehículo específico para la lista en solicitar_vehiculo.php
 
-require_once '../../app/config/database.php';
+header('Content-Type: application/json'); // ¡Importante!
+
+require_once '../../app/config/database.php'; // Ruta a tu archivo de conexión
 
 $vehiculo_id = filter_var($_GET['vehiculo_id'] ?? null, FILTER_VALIDATE_INT);
 $occupied_ranges = [];
@@ -16,13 +18,14 @@ $db = connectDB();
 
 if ($db) {
     try {
-        // Consulta para obtener las solicitudes aprobadas o en curso para este vehículo
-        // Ahora también selecciona el propósito y el nombre del usuario
+        // Consulta para obtener todas las solicitudes aprobadas o en curso para este vehículo
+        // Ahora también selecciona el evento, la descripción y el nombre del usuario
         $stmt = $db->prepare("
             SELECT
                 s.fecha_salida_solicitada,
                 s.fecha_regreso_solicitada,
-                s.proposito,
+                s.evento,             /* <<-- NUEVO */
+                s.descripcion,        /* <<-- RENOMBRADO */
                 u.nombre AS solicitante_nombre
             FROM solicitudes_vehiculos s
             JOIN usuarios u ON s.usuario_id = u.id
@@ -33,7 +36,6 @@ if ($db) {
         $stmt->bindParam(':vehiculo_id', $vehiculo_id);
         $stmt->execute();
         $occupied_ranges = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
     } catch (PDOException $e) {
         error_log("Error en API de disponibilidad: " . $e->getMessage());
         echo json_encode(['error' => 'Error al cargar la disponibilidad: ' . $e->getMessage()]);
@@ -44,5 +46,5 @@ if ($db) {
     exit();
 }
 
+// Devuelve los rangos de ocupación con la información adicional
 echo json_encode(['occupied_ranges' => $occupied_ranges]);
-?>

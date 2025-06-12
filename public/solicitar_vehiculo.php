@@ -1,5 +1,5 @@
 <?php
-// public/solicitar_vehiculo.php - CÓDIGO COMPLETO Y ACTUALIZADO (Mostrar Todos los Vehículos en el Dropdown)
+// public/solicitar_vehiculo.php - CÓDIGO COMPLETO Y ACTUALIZADO (Con EVENTO y DESCRIPCION)
 session_start();
 require_once '../app/config/database.php';
 
@@ -20,7 +20,8 @@ $error_message = '';
 $selected_vehiculo_id = '';
 $fecha_salida_solicitada = '';
 $fecha_regreso_solicitada = '';
-$proposito = '';
+$evento = ''; // Nuevo campo
+$descripcion = ''; // Renombrado de proposito
 $destino = '';
 
 $db = connectDB();
@@ -30,7 +31,7 @@ $vehiculos_flotilla = []; // Para el dropdown de vehículos
 // La disponibilidad detallada (por fechas de solicitudes) se mostrará en el widget de la derecha.
 if ($db) {
     try {
-        $stmt_vehiculos = $db->query("SELECT id, marca, modelo, placas FROM vehiculos ORDER BY marca, modelo"); // <<-- CAMBIO AQUÍ: YA NO FILTRA POR ESTATUS
+        $stmt_vehiculos = $db->query("SELECT id, marca, modelo, placas FROM vehiculos ORDER BY marca, modelo");
         $vehiculos_flotilla = $stmt_vehiculos->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
         error_log("Error al cargar vehículos para solicitud: " . $e->getMessage());
@@ -41,20 +42,20 @@ if ($db) {
 
 // Lógica para procesar la solicitud cuando se envía el formulario
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $selected_vehiculo_id = filter_var($_POST['vehiculo_id'] ?? null, FILTER_VALIDATE_INT); // Obtener el ID del vehículo seleccionado
+    $selected_vehiculo_id = filter_var($_POST['vehiculo_id'] ?? null, FILTER_VALIDATE_INT);
     $fecha_salida_solicitada = trim($_POST['fecha_salida_solicitada'] ?? '');
     $fecha_regreso_solicitada = trim($_POST['fecha_regreso_solicitada'] ?? '');
-    $proposito = trim($_POST['proposito'] ?? '');
+    $evento = trim($_POST['evento'] ?? ''); // Nuevo campo
+    $descripcion = trim($_POST['descripcion'] ?? ''); // Renombrado de proposito
     $destino = trim($_POST['destino'] ?? '');
 
     // Validación de los campos, ahora incluyendo el vehículo
-    if (empty($selected_vehiculo_id) || empty($fecha_salida_solicitada) || empty($fecha_regreso_solicitada) || empty($proposito) || empty($destino)) {
-        $error_message = 'Por favor, completa todos los campos requeridos, incluyendo la selección del vehículo.';
+    if (empty($selected_vehiculo_id) || empty($fecha_salida_solicitada) || empty($fecha_regreso_solicitada) || empty($evento) || empty($descripcion) || empty($destino)) {
+        $error_message = 'Por favor, completa todos los campos requeridos, incluyendo la selección del vehículo y el evento/descripción.';
     } elseif (strtotime($fecha_salida_solicitada) >= strtotime($fecha_regreso_solicitada)) {
         $error_message = 'La fecha y hora de regreso deben ser posteriores a la fecha y hora de salida.';
     } else {
         // **Validación de Disponibilidad Final (en el servidor) antes de insertar**
-        // Re-verificar la disponibilidad para evitar que alguien envíe la solicitud si el auto se ocupó justo antes.
         if ($db) {
             try {
                 // Verificar si el vehículo ya está ocupado en el rango de fechas solicitado
@@ -75,22 +76,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error_message = 'El vehículo seleccionado NO está disponible en las fechas que has elegido. Por favor, revisa la disponibilidad y selecciona otras fechas o vehículo.';
                 } else {
                     // Si todo está bien, insertar la solicitud
-                    $stmt = $db->prepare("INSERT INTO solicitudes_vehiculos (usuario_id, vehiculo_id, fecha_salida_solicitada, fecha_regreso_solicitada, proposito, destino) VALUES (:usuario_id, :vehiculo_id, :fecha_salida, :fecha_regreso, :proposito, :destino)");
+                    $stmt = $db->prepare("INSERT INTO solicitudes_vehiculos (usuario_id, vehiculo_id, fecha_salida_solicitada, fecha_regreso_solicitada, evento, descripcion, destino) VALUES (:usuario_id, :vehiculo_id, :fecha_salida, :fecha_regreso, :evento, :descripcion, :destino)");
                     $stmt->bindParam(':usuario_id', $user_id);
                     $stmt->bindParam(':vehiculo_id', $selected_vehiculo_id);
                     $stmt->bindParam(':fecha_salida', $fecha_salida_solicitada);
                     $stmt->bindParam(':fecha_regreso', $fecha_regreso_solicitada);
-                    $stmt->bindParam(':proposito', $proposito);
+                    $stmt->bindParam(':evento', $evento); // Nuevo campo
+                    $stmt->bindParam(':descripcion', $descripcion); // Renombrado
                     $stmt->bindParam(':destino', $destino);
                     $stmt->execute();
 
-                    $success_message = '¡Tu solicitud ha sido enviada con éxito! Espera la aprobación. Vehículo: ' . htmlspecialchars($_POST['vehiculo_info_display'] ?? ''); 
-                    
+                    $success_message = '¡Tu solicitud ha sido enviada con éxito! Espera la aprobación. Vehículo: ' . htmlspecialchars($_POST['vehiculo_info_display'] ?? '');
+
                     // Limpiar los campos del formulario después de una solicitud exitosa
                     $selected_vehiculo_id = '';
                     $fecha_salida_solicitada = '';
                     $fecha_regreso_solicitada = '';
-                    $proposito = '';
+                    $evento = '';
+                    $descripcion = '';
                     $destino = '';
                 }
             } catch (PDOException $e) {
@@ -106,6 +109,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -114,12 +118,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 </head>
+
 <body>
     <?php
-    // Asegúrate de definir estas variables ANTES de incluir la navbar
     $nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
     $rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
-    require_once '../app/includes/navbar.php'; // Incluir la barra de navegación
+    require_once '../app/includes/navbar.php';
     ?>
 
     <div class="container mt-4">
@@ -162,8 +166,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <input type="datetime-local" class="form-control" id="fecha_regreso_solicitada" name="fecha_regreso_solicitada" value="<?php echo htmlspecialchars($fecha_regreso_solicitada); ?>" required>
                         </div>
                         <div class="mb-3">
-                            <label for="proposito" class="form-label">Propósito del Viaje</label>
-                            <textarea class="form-control" id="proposito" name="proposito" rows="3" required><?php echo htmlspecialchars($proposito); ?></textarea>
+                            <label for="evento" class="form-label">Evento</label>
+                            <input type="text" class="form-control" id="evento" name="evento" value="<?php echo htmlspecialchars($evento); ?>" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="descripcion" class="form-label">Descripción del Viaje</label>
+                            <textarea class="form-control" id="descripcion" name="descripcion" rows="3" required><?php echo htmlspecialchars($descripcion); ?></textarea>
                         </div>
                         <div class="mb-3">
                             <label for="destino" class="form-label">Destino / Ruta</label>
@@ -178,7 +186,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <h5 class="card-title">Próximas Ocupaciones del Vehículo Seleccionado</h5>
                     <div id="availability_list_container" style="display: none;">
                         <ul class="list-group mb-3" id="occupied_dates_list">
-                            </ul>
+                        </ul>
                         <p class="text-muted small mt-2" id="occupied_dates_hint"></p>
                     </div>
                     <div class="alert alert-info text-center" id="no_vehicle_selected_message" style="display: block;">
@@ -226,24 +234,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             const vehiculoInfoDisplay = document.getElementById('vehiculo_info_display');
             const occupiedDatesHint = document.getElementById('occupied_dates_hint');
 
-            // Función para formatear fechas para la lista (Solución para "Invalid Date")
+            // Función para formatear fechas para la lista
             function formatDateTime(dateTimeString) {
-                // Reemplazar el espacio con 'T' para asegurar el formato ISO 8601 compatible con new Date()
-                const isoDateTimeString = dateTimeString.replace(' ', 'T'); 
+                const isoDateTimeString = dateTimeString.replace(' ', 'T');
                 const date = new Date(isoDateTimeString);
 
-                if (isNaN(date.getTime())) { // Verifica si la fecha es inválida
+                if (isNaN(date.getTime())) {
                     console.error("Fecha inválida recibida:", dateTimeString);
                     return 'Fecha Inválida';
                 }
 
-                const options = { 
-                    year: 'numeric', 
-                    month: 'short', 
-                    day: 'numeric', 
-                    hour: '2-digit', 
+                const options = {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
                     minute: '2-digit',
-                    hour12: false // Formato 24 horas
+                    hour12: false
                 };
                 return date.toLocaleString('es-MX', options);
             }
@@ -284,7 +291,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 listItem.innerHTML = `
                                     <strong>Ocupado desde:</strong> ${formatDateTime(range.fecha_salida_solicitada)}<br>
                                     <strong>Hasta:</strong> ${formatDateTime(range.fecha_regreso_solicitada)}<br>
-                                    <strong>Propósito:</strong> ${range.proposito || 'N/A'}<br>
+                                    <strong>Evento:</strong> ${range.evento || 'N/A'}<br>
+                                    <strong>Descripción:</strong> ${range.descripcion || 'N/A'}<br>
                                     <strong>Solicitado por:</strong> ${range.solicitante_nombre || 'Desconocido'}
                                 `;
                                 occupiedDatesList.appendChild(listItem);
@@ -321,5 +329,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 noOccupiedDatesMessage.style.display = 'none';
             }
         </script>
-    </body>
-    </html>
+</body>
+
+</html>

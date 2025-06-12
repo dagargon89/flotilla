@@ -1,5 +1,5 @@
 <?php
-// public/gestion_solicitudes.php - CÓDIGO COMPLETO Y CORREGIDO
+// public/gestion_solicitudes.php - CÓDIGO COMPLETO Y ACTUALIZADO (Con EVENTO y DESCRIPCION)
 session_start();
 require_once '../app/config/database.php';
 
@@ -10,11 +10,9 @@ if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] !== 'flotilla_manage
     exit();
 }
 
-$nombre_usuario = $_SESSION['user_name'];
+$nombre_usuario_sesion = $_SESSION['user_name'];
 $user_id = $_SESSION['user_id'];
-$rol_usuario = $_SESSION['user_role'];
-$nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
-$rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
+$rol_usuario_sesion = $_SESSION['user_role'];
 
 $success_message = '';
 $error_message = '';
@@ -28,14 +26,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $solicitud_id = $_POST['solicitud_id'] ?? null;
     $action = $_POST['action'] ?? '';
     $observaciones = trim($_POST['observaciones_aprobacion'] ?? '');
-    $vehiculo_asignado_id = filter_var($_POST['vehiculo_asignado_id'] ?? null, FILTER_VALIDATE_INT); // Nuevo: ID del vehículo seleccionado
+    $vehiculo_asignado_id = filter_var($_POST['vehiculo_asignado_id'] ?? null, FILTER_VALIDATE_INT);
 
     if ($solicitud_id && ($action === 'aprobar' || $action === 'rechazar')) {
         try {
             $db->beginTransaction();
 
             $new_status = ($action === 'aprobar') ? 'aprobada' : 'rechazada';
-            $vehiculo_to_update = null; // Guardará el ID del vehículo si se aprueba
+            $vehiculo_to_update = null;
 
             // Obtener datos actuales de la solicitud para verificar fechas y vehículo
             $stmt_check = $db->prepare("SELECT vehiculo_id, fecha_salida_solicitada, fecha_regreso_solicitada FROM solicitudes_vehiculos WHERE id = :solicitud_id FOR UPDATE"); // Bloqueamos la fila
@@ -46,17 +44,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (!$current_solicitud) {
                 throw new Exception("Solicitud no encontrada.");
             }
-            
+
             // Si la acción es 'aprobar', necesitamos validar y asignar el vehículo
             if ($action === 'aprobar') {
                 if (!$vehiculo_asignado_id) {
                     throw new Exception("Debes seleccionar un vehículo para aprobar la solicitud.");
                 }
 
-                // **Verificar disponibilidad del vehículo para las fechas solicitadas**
-                // Esta es una verificación simple. En un sistema real, sería más robusta.
-                // Verifica que no haya otro vehículo_id asignado a una solicitud
-                // con estatus 'aprobada' o 'en_curso' que se solape con las fechas
+                // Verificar disponibilidad del vehículo para las fechas solicitadas
                 $stmt_overlap = $db->prepare("
                     SELECT COUNT(*) FROM solicitudes_vehiculos
                     WHERE vehiculo_id = :vehiculo_id
@@ -64,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     AND (
                         (fecha_salida_solicitada < :fecha_regreso AND fecha_regreso_solicitada > :fecha_salida)
                     )
-                    AND id != :solicitud_id_exclude -- Excluir la solicitud actual si es una re-aprobación o edición
+                    AND id != :solicitud_id_exclude
                 ");
                 $stmt_overlap->bindParam(':vehiculo_id', $vehiculo_asignado_id);
                 $stmt_overlap->bindParam(':fecha_salida', $current_solicitud['fecha_salida_solicitada']);
@@ -76,43 +71,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     throw new Exception("El vehículo seleccionado no está disponible en las fechas solicitadas. Por favor, elige otro.");
                 }
 
-                $vehiculo_to_update = $vehiculo_asignado_id; // Guardamos el ID para actualizar
-                
-                // Si la solicitud ya tenía un vehículo asignado y se va a cambiar, liberar el anterior (opcional, si manejan ese flujo)
-                // Por ahora, solo asignamos el nuevo.
-
+                $vehiculo_to_update = $vehiculo_asignado_id;
             } else { // Si la acción es 'rechazar'
-                // Si se rechaza, aseguramos que no se asigne ningún vehículo
                 $vehiculo_to_update = null;
             }
 
-            // 1. Actualizar el estado de la solicitud y asignar vehículo
+            // Actualizar el estado de la solicitud y asignar vehículo
             $stmt = $db->prepare("UPDATE solicitudes_vehiculos SET estatus_solicitud = :new_status, fecha_aprobacion = NOW(), aprobado_por = :aprobado_por, observaciones_aprobacion = :observaciones, vehiculo_id = :vehiculo_id WHERE id = :solicitud_id");
             $stmt->bindParam(':new_status', $new_status);
             $stmt->bindParam(':aprobado_por', $user_id);
             $stmt->bindParam(':observaciones', $observaciones);
-            $stmt->bindParam(':vehiculo_id', $vehiculo_to_update); // Aquí se asigna el ID o NULL
+            $stmt->bindParam(':vehiculo_id', $vehiculo_to_update);
             $stmt->bindParam(':solicitud_id', $solicitud_id);
             $stmt->execute();
 
             if ($stmt->rowCount() > 0) {
                 $success_message = 'Solicitud ' . ($action === 'aprobar' ? 'aprobada' : 'rechazada') . ' con éxito.';
-
-                // Si la solicitud fue aprobada, el vehículo se considera "en uso" por esta aprobación en el calendario
-                // Si la solicitud se rechaza, no se actualiza el estatus del vehículo en la tabla de vehículos
-                // El estatus del vehículo en la tabla 'vehiculos' solo se cambiará a 'en_uso'
-                // cuando se registre en historial_uso_vehiculos (la entrega real).
-                // Por ahora, la tabla 'vehiculos' solo tiene el 'estatus' general.
-                // Podríamos considerar un campo `proxima_reserva_id` en `vehiculos` para bloquearlo.
-
             } else {
                 $error_message = 'La solicitud no pudo ser actualizada. Asegúrate de que no esté ya procesada o de que el ID sea correcto.';
             }
 
-            $db->commit(); // Confirmar los cambios
-
+            $db->commit();
         } catch (Exception $e) {
-            $db->rollBack(); // Revertir si algo falla
+            $db->rollBack();
             error_log("Error al gestionar solicitud: " . $e->getMessage());
             $error_message = 'Ocurrió un error al procesar la solicitud: ' . $e->getMessage();
         }
@@ -128,14 +109,15 @@ if ($db) {
                 u.nombre AS usuario_nombre,
                 s.fecha_salida_solicitada,
                 s.fecha_regreso_solicitada,
-                s.proposito,
+                s.evento,             /* <<-- NUEVO */
+                s.descripcion,        /* <<-- RENOMBRADO */
                 s.destino,
                 s.estatus_solicitud,
                 s.observaciones_aprobacion,
                 v.marca,
                 v.modelo,
                 v.placas,
-                v.id AS vehiculo_actual_id -- Para precargar en el modal
+                v.id AS vehiculo_actual_id
             FROM solicitudes_vehiculos s
             JOIN usuarios u ON s.usuario_id = u.id
             LEFT JOIN vehiculos v ON s.vehiculo_id = v.id
@@ -144,11 +126,8 @@ if ($db) {
         $solicitudes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // --- Obtener vehículos disponibles para el dropdown en el modal ---
-        // Solo vehículos con estatus 'disponible' o 'en_uso' si son vehículos que ya están siendo usados por otras solicitudes aprobadas
-        // Lo más simple por ahora es listar los disponibles para nuevas asignaciones
         $stmt_vehiculos_disp = $db->query("SELECT id, marca, modelo, placas FROM vehiculos WHERE estatus IN ('disponible', 'en_mantenimiento') ORDER BY marca, modelo");
         $vehiculos_disponibles_para_seleccion = $stmt_vehiculos_disp->fetchAll(PDO::FETCH_ASSOC);
-
     } catch (PDOException $e) {
         error_log("Error al cargar datos para gestión de solicitudes: " . $e->getMessage());
         $error_message = 'No se pudieron cargar las solicitudes o vehículos.';
@@ -158,6 +137,7 @@ if ($db) {
 
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -165,8 +145,13 @@ if ($db) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
 </head>
+
 <body>
-<?php require_once '../app/includes/navbar.php'; // Incluir la barra de navegación ?>
+    <?php
+    $nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
+    $rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
+    require_once '../app/includes/navbar.php'; // Incluir la barra de navegación
+    ?>
 
     <div class="container mt-4">
         <h1 class="mb-4">Gestión de Solicitudes de Vehículos</h1>
@@ -196,7 +181,8 @@ if ($db) {
                             <th>Solicitante</th>
                             <th>Salida Deseada</th>
                             <th>Regreso Deseado</th>
-                            <th>Propósito</th>
+                            <th>Evento</th>
+                            <th>Descripción</th>
                             <th>Destino</th>
                             <th>Vehículo Asignado</th>
                             <th>Estatus</th>
@@ -210,7 +196,8 @@ if ($db) {
                                 <td><?php echo htmlspecialchars($solicitud['usuario_nombre']); ?></td>
                                 <td><?php echo date('d/m/Y H:i', strtotime($solicitud['fecha_salida_solicitada'])); ?></td>
                                 <td><?php echo date('d/m/Y H:i', strtotime($solicitud['fecha_regreso_solicitada'])); ?></td>
-                                <td><?php echo htmlspecialchars($solicitud['proposito']); ?></td>
+                                <td><?php echo htmlspecialchars($solicitud['evento']); ?></td>
+                                <td><?php echo htmlspecialchars($solicitud['descripcion']); ?></td>
                                 <td><?php echo htmlspecialchars($solicitud['destino']); ?></td>
                                 <td>
                                     <?php if ($solicitud['marca']): ?>
@@ -221,33 +208,45 @@ if ($db) {
                                 </td>
                                 <td>
                                     <?php
-                                        $status_class = '';
-                                        switch ($solicitud['estatus_solicitud']) {
-                                            case 'pendiente': $status_class = 'badge bg-warning text-dark'; break;
-                                            case 'aprobada': $status_class = 'badge bg-success'; break;
-                                            case 'rechazada': $status_class = 'badge bg-danger'; break;
-                                            case 'en_curso': $status_class = 'badge bg-primary'; break;
-                                            case 'completada': $status_class = 'badge bg-secondary'; break;
-                                            case 'cancelada': $status_class = 'badge bg-info'; break;
-                                        }
+                                    $status_class = '';
+                                    switch ($solicitud['estatus_solicitud']) {
+                                        case 'pendiente':
+                                            $status_class = 'badge bg-warning text-dark';
+                                            break;
+                                        case 'aprobada':
+                                            $status_class = 'badge bg-success';
+                                            break;
+                                        case 'rechazada':
+                                            $status_class = 'badge bg-danger';
+                                            break;
+                                        case 'en_curso':
+                                            $status_class = 'badge bg-primary';
+                                            break;
+                                        case 'completada':
+                                            $status_class = 'badge bg-secondary';
+                                            break;
+                                        case 'cancelada':
+                                            $status_class = 'badge bg-info';
+                                            break;
+                                    }
                                     ?>
                                     <span class="<?php echo $status_class; ?>"><?php echo htmlspecialchars(ucfirst($solicitud['estatus_solicitud'])); ?></span>
                                 </td>
                                 <td>
                                     <?php if ($solicitud['estatus_solicitud'] === 'pendiente'): ?>
                                         <button type="button" class="btn btn-success btn-sm me-1" data-bs-toggle="modal" data-bs-target="#approveRejectModal"
-                                                data-solicitud-id="<?php echo $solicitud['solicitud_id']; ?>" data-action="aprobar"
-                                                data-usuario="<?php echo htmlspecialchars($solicitud['usuario_nombre']); ?>"
-                                                data-salida="<?php echo htmlspecialchars($solicitud['fecha_salida_solicitada']); ?>"
-                                                data-regreso="<?php echo htmlspecialchars($solicitud['fecha_regreso_solicitada']); ?>"
-                                                data-observaciones-aprobacion="<?php echo htmlspecialchars($solicitud['observaciones_aprobacion']); ?>"
-                                                data-vehiculo-actual-id="<?php echo htmlspecialchars($solicitud['vehiculo_actual_id']); ?>">
+                                            data-solicitud-id="<?php echo $solicitud['solicitud_id']; ?>" data-action="aprobar"
+                                            data-usuario="<?php echo htmlspecialchars($solicitud['usuario_nombre']); ?>"
+                                            data-salida="<?php echo htmlspecialchars($solicitud['fecha_salida_solicitada']); ?>"
+                                            data-regreso="<?php echo htmlspecialchars($solicitud['fecha_regreso_solicitada']); ?>"
+                                            data-observaciones-aprobacion="<?php echo htmlspecialchars($solicitud['observaciones_aprobacion']); ?>"
+                                            data-vehiculo-actual-id="<?php echo htmlspecialchars($solicitud['vehiculo_actual_id']); ?>">
                                             Aprobar
                                         </button>
                                         <button type="button" class="btn btn-danger btn-sm" data-bs-toggle="modal" data-bs-target="#approveRejectModal"
-                                                data-solicitud-id="<?php echo $solicitud['solicitud_id']; ?>" data-action="rechazar"
-                                                data-usuario="<?php echo htmlspecialchars($solicitud['usuario_nombre']); ?>"
-                                                data-observaciones-aprobacion="<?php echo htmlspecialchars($solicitud['observaciones_aprobacion']); ?>">
+                                            data-solicitud-id="<?php echo $solicitud['solicitud_id']; ?>" data-action="rechazar"
+                                            data-usuario="<?php echo htmlspecialchars($solicitud['usuario_nombre']); ?>"
+                                            data-observaciones-aprobacion="<?php echo htmlspecialchars($solicitud['observaciones_aprobacion']); ?>">
                                             Rechazar
                                         </button>
                                     <?php else: ?>
@@ -256,8 +255,7 @@ if ($db) {
                                             data-usuario="<?php echo htmlspecialchars($solicitud['usuario_nombre']); ?>"
                                             data-salida="<?php echo htmlspecialchars($solicitud['fecha_salida_solicitada']); ?>"
                                             data-regreso="<?php echo htmlspecialchars($solicitud['fecha_regreso_solicitada']); ?>"
-                                            data-proposito="<?php echo htmlspecialchars($solicitud['proposito']); ?>"
-                                            data-destino="<?php echo htmlspecialchars($solicitud['destino']); ?>"
+                                            data-evento="<?php echo htmlspecialchars($solicitud['evento']); ?>" data-descripcion="<?php echo htmlspecialchars($solicitud['descripcion']); ?>" data-destino="<?php echo htmlspecialchars($solicitud['destino']); ?>"
                                             data-vehiculo="<?php echo htmlspecialchars($solicitud['marca'] ? $solicitud['marca'] . ' ' . $solicitud['modelo'] . ' (' . $solicitud['placas'] . ')' : 'Sin asignar'); ?>"
                                             data-estatus="<?php echo htmlspecialchars(ucfirst($solicitud['estatus_solicitud'])); ?>"
                                             data-observaciones-aprobacion="<?php echo htmlspecialchars($solicitud['observaciones_aprobacion']); ?>">
@@ -322,8 +320,9 @@ if ($db) {
                     <div class="modal-body">
                         <p><strong>Solicitante:</strong> <span id="detailUserName"></span></p>
                         <p><strong>Salida Deseada:</strong> <span id="detailFechaSalida"></span></p>
-                        <p><strong>Regreso Deseada:</strong> <span id="detailFechaRegreso"></span></p>
-                        <p><strong>Propósito:</strong> <span id="detailProposito"></span></p>
+                        <p><strong>Regreso Deseado:</strong> <span id="detailFechaRegreso"></span></p>
+                        <p><strong>Evento:</strong> <span id="detailEvento"></span></p>
+                        <p><strong>Descripción:</strong> <span id="detailDescripcion"></span></p>
                         <p><strong>Destino:</strong> <span id="detailDestino"></span></p>
                         <p><strong>Vehículo Asignado:</strong> <span id="detailVehiculoAsignado"></span></p>
                         <p><strong>Estatus:</strong> <span id="detailEstatus" class="badge"></span></p>
@@ -344,7 +343,7 @@ if ($db) {
         // JavaScript para manejar el modal de Aprobar/Rechazar Solicitud
         document.addEventListener('DOMContentLoaded', function() {
             var approveRejectModal = document.getElementById('approveRejectModal');
-            approveRejectModal.addEventListener('show.bs.modal', function (event) {
+            approveRejectModal.addEventListener('show.bs.modal', function(event) {
                 var button = event.relatedTarget; // Botón que activó el modal
                 var solicitudId = button.getAttribute('data-solicitud-id');
                 var action = button.getAttribute('data-action');
@@ -352,7 +351,7 @@ if ($db) {
                 var salida = button.getAttribute('data-salida');
                 var regreso = button.getAttribute('data-regreso');
                 var observacionesAprobacion = button.getAttribute('data-observaciones-aprobacion');
-                var vehiculoActualId = button.getAttribute('data-vehiculo-actual-id'); // ID del vehículo ya asignado
+                var vehiculoActualId = button.getAttribute('data-vehiculo-actual-id');
 
                 var modalSolicitudId = approveRejectModal.querySelector('#modalSolicitudId');
                 var modalAction = approveRejectModal.querySelector('#modalAction');
@@ -366,49 +365,67 @@ if ($db) {
                 modalSolicitudId.value = solicitudId;
                 modalAction.value = action;
                 modalUserName.textContent = userName;
-                observacionesModal.value = observacionesAprobacion; // Precarga observaciones
+                observacionesModal.value = observacionesAprobacion;
 
-                // Resetear el select de vehículos y seleccionar el asignado si existe
-                vehiculoAsignadoSelect.value = vehiculoActualId || ''; // Seleccionar el actual o vacío
+                vehiculoAsignadoSelect.value = vehiculoActualId || '';
 
                 if (action === 'aprobar') {
                     modalActionText.textContent = 'APROBAR';
                     modalSubmitBtn.textContent = 'Aprobar Solicitud';
                     modalSubmitBtn.className = 'btn btn-success';
-                    vehiculoAssignmentSection.style.display = 'block'; // Mostrar selector de vehículo
-                    vehiculoAsignadoSelect.setAttribute('required', 'required'); // Hacerlo obligatorio
+                    vehiculoAssignmentSection.style.display = 'block';
+                    vehiculoAsignadoSelect.setAttribute('required', 'required');
                 } else if (action === 'rechazar') {
                     modalActionText.textContent = 'RECHAZAR';
                     modalSubmitBtn.textContent = 'Rechazar Solicitud';
                     modalSubmitBtn.className = 'btn btn-danger';
-                    vehiculoAssignmentSection.style.display = 'none'; // Ocultar selector de vehículo
-                    vehiculoAsignadoSelect.removeAttribute('required'); // No es obligatorio
-                    vehiculoAsignadoSelect.value = ''; // Limpiar selección si se rechaza
+                    vehiculoAssignmentSection.style.display = 'none';
+                    vehiculoAsignadoSelect.removeAttribute('required');
+                    vehiculoAsignadoSelect.value = '';
                 }
             });
 
             // JavaScript para manejar el modal de Ver Detalles
             var viewDetailsModal = document.getElementById('viewDetailsModal');
-            viewDetailsModal.addEventListener('show.bs.modal', function (event) {
-                var button = event.relatedTarget; // Botón que activó el modal
+            viewDetailsModal.addEventListener('show.bs.modal', function(event) {
+                var button = event.relatedTarget;
 
                 document.getElementById('detailUserName').textContent = button.getAttribute('data-usuario');
-                document.getElementById('detailFechaSalida').textContent = new Date(button.getAttribute('data-salida')).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
-                document.getElementById('detailFechaRegreso').textContent = new Date(button.getAttribute('data-regreso')).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
-                document.getElementById('detailProposito').textContent = button.getAttribute('data-proposito');
+                document.getElementById('detailFechaSalida').textContent = new Date(button.getAttribute('data-salida')).toLocaleString('es-MX', {
+                    dateStyle: 'medium',
+                    timeStyle: 'short'
+                });
+                document.getElementById('detailFechaRegreso').textContent = new Date(button.getAttribute('data-regreso')).toLocaleString('es-MX', {
+                    dateStyle: 'medium',
+                    timeStyle: 'short'
+                });
+                document.getElementById('detailEvento').textContent = button.getAttribute('data-evento'); // <<-- NUEVO
+                document.getElementById('detailDescripcion').textContent = button.getAttribute('data-descripcion'); // <<-- RENOMBRADO
                 document.getElementById('detailDestino').textContent = button.getAttribute('data-destino');
                 document.getElementById('detailVehiculoAsignado').textContent = button.getAttribute('data-vehiculo');
-                
+
                 var statusBadge = document.getElementById('detailEstatus');
                 statusBadge.textContent = button.getAttribute('data-estatus');
-                statusBadge.className = 'badge'; // Resetear clases
+                statusBadge.className = 'badge';
                 switch (button.getAttribute('data-estatus').toLowerCase()) {
-                    case 'pendiente': statusBadge.classList.add('bg-warning', 'text-dark'); break;
-                    case 'aprobada': statusBadge.classList.add('bg-success'); break;
-                    case 'rechazada': statusBadge.classList.add('bg-danger'); break;
-                    case 'en_curso': statusBadge.classList.add('bg-primary'); break;
-                    case 'completada': statusBadge.classList.add('bg-secondary'); break;
-                    case 'cancelada': statusBadge.classList.add('bg-info'); break;
+                    case 'pendiente':
+                        statusBadge.classList.add('bg-warning', 'text-dark');
+                        break;
+                    case 'aprobada':
+                        statusBadge.classList.add('bg-success');
+                        break;
+                    case 'rechazada':
+                        statusBadge.classList.add('bg-danger');
+                        break;
+                    case 'en_curso':
+                        statusBadge.classList.add('bg-primary');
+                        break;
+                    case 'completada':
+                        statusBadge.classList.add('bg-secondary');
+                        break;
+                    case 'cancelada':
+                        statusBadge.classList.add('bg-info');
+                        break;
                 }
 
                 document.getElementById('detailObservacionesAprobacion').textContent = button.getAttribute('data-observaciones-aprobacion') || 'N/A';
@@ -416,4 +433,5 @@ if ($db) {
         });
     </script>
 </body>
+
 </html>
