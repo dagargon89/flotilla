@@ -1,19 +1,21 @@
 <?php
-// public/index.php - CÓDIGO COMPLETO Y ACTUALIZADO (Login con estatus_cuenta)
-session_start(); // Inicia la sesión PHP al principio de cada página que la use
-
-// Incluye el archivo de conexión a la base de datos
+// public/index.php - CÓDIGO ACTUALIZADO (Login para Suspended y Pendientes/Rechazados)
+session_start();
 require_once '../app/config/database.php';
 
 // Si el usuario ya está logueado, redirigirlo al dashboard
 if (isset($_SESSION['user_id'])) {
-    header('Location: dashboard.php'); // Redirige al dashboard
+    // Si ya está logueado y es suspendido, mandarlo a la página de suspensión
+    if (isset($_SESSION['user_estatus_usuario']) && $_SESSION['user_estatus_usuario'] === 'suspendido') {
+        header('Location: suspended.php');
+        exit();
+    }
+    header('Location: dashboard.php');
     exit();
 }
 
-$error_message = ''; // Variable para guardar mensajes de error
+$error_message = '';
 
-// Lógica para procesar el formulario de login
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $correo = trim($_POST['correo_electronico'] ?? '');
     $password = $_POST['password'] ?? '';
@@ -21,45 +23,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($correo) || empty($password)) {
         $error_message = 'Por favor, ingresa tu correo y contraseña.';
     } else {
-        $db = connectDB(); // Conecta a la base de datos
+        $db = connectDB();
         if ($db) {
             try {
-                // Consulta para buscar al usuario por correo y OBTENER estatus_cuenta
-                $stmt = $db->prepare("SELECT id, nombre, correo_electronico, password, rol, estatus_cuenta FROM usuarios WHERE correo_electronico = :correo");
+                $stmt = $db->prepare("SELECT id, nombre, correo_electronico, password, rol, estatus_cuenta, estatus_usuario FROM usuarios WHERE correo_electronico = :correo");
                 $stmt->bindParam(':correo', $correo);
                 $stmt->execute();
                 $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
                 if ($user) {
-                    // Verifica la contraseña
                     if (password_verify($password, $user['password'])) {
                         // Contraseña correcta
-                        // AHORA VERIFICAR ESTATUS DE LA CUENTA
-                        if ($user['estatus_cuenta'] === 'activa') {
-                            // Cuenta activa, iniciar sesión
-                            $_SESSION['user_id'] = $user['id'];
-                            $_SESSION['user_name'] = $user['nombre'];
-                            $_SESSION['user_role'] = $user['rol'];
 
-                            // Actualiza la última sesión del usuario en la BD
-                            $update_stmt = $db->prepare("UPDATE usuarios SET ultima_sesion = NOW() WHERE id = :id");
-                            $update_stmt->bindParam(':id', $user['id']);
-                            $update_stmt->execute();
+                        // INICIAMOS LA SESIÓN PARA TODOS, PERO REDIRIGIMOS SEGÚN ESTATUS
+                        $_SESSION['user_id'] = $user['id'];
+                        $_SESSION['user_name'] = $user['nombre'];
+                        $_SESSION['user_role'] = $user['rol'];
+                        $_SESSION['user_estatus_usuario'] = $user['estatus_usuario']; // Guardar el estatus de uso en sesión
 
+                        // Actualiza la última sesión del usuario en la BD
+                        $update_stmt = $db->prepare("UPDATE usuarios SET ultima_sesion = NOW() WHERE id = :id");
+                        $update_stmt->bindParam(':id', $user['id']);
+                        $update_stmt->execute();
+
+                        // Redirigir según el estatus de la cuenta/usuario
+                        if ($user['estatus_cuenta'] === 'activa' && $user['estatus_usuario'] === 'activo') {
                             header('Location: dashboard.php');
+                            exit();
+                        } elseif ($user['estatus_usuario'] === 'suspendido') { // Si el usuario está suspendido
+                            header('Location: suspended.php');
                             exit();
                         } elseif ($user['estatus_cuenta'] === 'pendiente_aprobacion') {
                             $error_message = 'Tu cuenta está pendiente de aprobación. Por favor, espera a que el administrador la active.';
+                            // Opcional: Destruir sesión si está pendiente o rechazada para forzar login de nuevo
+                            session_destroy(); // Destruye la sesión recién creada
                         } elseif ($user['estatus_cuenta'] === 'rechazada') {
                             $error_message = 'Tu solicitud de cuenta ha sido rechazada. Contacta al administrador si crees que es un error.';
-                        } else { // 'inactiva' o cualquier otro estatus
+                            session_destroy(); // Destruye la sesión recién creada
+                        } else { // 'inactiva' o cualquier otro estatus no previsto
                             $error_message = 'Tu cuenta está inactiva. Contacta al administrador.';
+                            session_destroy(); // Destruye la sesión recién creada
                         }
                     } else {
                         $error_message = 'Correo o contraseña incorrectos.';
                     }
                 } else {
-                    $error_message = 'Correo o contraseña incorrectos.'; // No diferenciar entre correo no existente y contraseña incorrecta por seguridad
+                    $error_message = 'Correo o contraseña incorrectos.';
                 }
             } catch (PDOException $e) {
                 error_log("Error de login: " . $e->getMessage());
