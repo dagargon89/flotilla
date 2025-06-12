@@ -93,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_uso'])) {
     $observaciones = trim($_POST['observaciones'] ?? '');
 
     // Para las fotos
-    $fotos_urls = [];
+    $fotos_urls = ['medidores' => [], 'observaciones' => []];
     $uploaded_files = $_FILES['fotos'] ?? [];
 
     if ($solicitud_id === false || $solicitud_id <= 0) {
@@ -107,23 +107,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_uso'])) {
             $db->beginTransaction();
 
             // Lógica para subir las fotos
-            if (!empty($uploaded_files['name'][0])) {
-                foreach ($uploaded_files['name'] as $key => $name) {
-                    $tmp_name = $uploaded_files['tmp_name'][$key];
-                    $error_code = $uploaded_files['error'][$key];
+            // Procesar fotos de medidores
+            $fotos_medidores = $_FILES['fotos_medidores'] ?? [];
+            if (!empty($fotos_medidores['name'][0])) {
+                foreach ($fotos_medidores['name'] as $key => $name) {
+                    $tmp_name = $fotos_medidores['tmp_name'][$key];
+                    $error_code = $fotos_medidores['error'][$key];
 
                     if ($error_code === UPLOAD_ERR_OK) {
                         $file_ext = pathinfo($name, PATHINFO_EXTENSION);
-                        $new_file_name = uniqid('evidencia_') . '.' . $file_ext;
+                        $new_file_name = uniqid('evidencia_medidores_') . '.' . $file_ext;
                         $destination_path = $upload_dir . $new_file_name;
 
                         if (move_uploaded_file($tmp_name, $destination_path)) {
-                            $fotos_urls[] = '/flotilla/storage/uploads/vehiculo_evidencias/' . $new_file_name;
-                        } else {
-                            throw new Exception("Error al mover el archivo subido: " . $name);
+                            $fotos_urls['medidores'][] = '/flotilla/storage/uploads/vehiculo_evidencias/' . $new_file_name;
                         }
-                    } elseif ($error_code !== UPLOAD_ERR_NO_FILE) {
-                        throw new Exception("Error al subir el archivo: " . $name . " (Código: " . $error_code . ")");
+                    }
+                }
+            }
+
+            // Procesar fotos de observaciones
+            $fotos_observaciones = $_FILES['fotos_observaciones'] ?? [];
+            if (!empty($fotos_observaciones['name'][0])) {
+                foreach ($fotos_observaciones['name'] as $key => $name) {
+                    $tmp_name = $fotos_observaciones['tmp_name'][$key];
+                    $error_code = $fotos_observaciones['error'][$key];
+
+                    if ($error_code === UPLOAD_ERR_OK) {
+                        $file_ext = pathinfo($name, PATHINFO_EXTENSION);
+                        $new_file_name = uniqid('evidencia_observaciones_') . '.' . $file_ext;
+                        $destination_path = $upload_dir . $new_file_name;
+
+                        if (move_uploaded_file($tmp_name, $destination_path)) {
+                            $fotos_urls['observaciones'][] = '/flotilla/storage/uploads/vehiculo_evidencias/' . $new_file_name;
+                        }
                     }
                 }
             }
@@ -139,14 +156,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_uso'])) {
                     throw new Exception("La solicitud no está aprobada o no tiene un vehículo asignado para marcar la salida.");
                 }
 
-                $stmt_insert = $db->prepare("INSERT INTO historial_uso_vehiculos (solicitud_id, vehiculo_id, usuario_id, kilometraje_salida, nivel_combustible_salida, fecha_salida_real, observaciones_salida, fotos_salida_url) VALUES (:solicitud_id, :vehiculo_id, :usuario_id, :kilometraje, :nivel_combustible, NOW(), :observaciones, :fotos_urls)");
+                $stmt_insert = $db->prepare("INSERT INTO historial_uso_vehiculos (solicitud_id, vehiculo_id, usuario_id, kilometraje_salida, nivel_combustible_salida, fecha_salida_real, observaciones_salida, fotos_salida_medidores_url, fotos_salida_observaciones_url) VALUES (:solicitud_id, :vehiculo_id, :usuario_id, :kilometraje, :nivel_combustible, NOW(), :observaciones, :fotos_medidores_urls, :fotos_observaciones_urls)");
                 $stmt_insert->bindParam(':solicitud_id', $solicitud_id);
                 $stmt_insert->bindParam(':vehiculo_id', $solicitud_info['vehiculo_id']);
                 $stmt_insert->bindParam(':usuario_id', $user_id);
                 $stmt_insert->bindParam(':kilometraje', $kilometraje);
                 $stmt_insert->bindParam(':nivel_combustible', $nivel_combustible);
                 $stmt_insert->bindParam(':observaciones', $observaciones);
-                $stmt_insert->bindValue(':fotos_urls', json_encode($fotos_urls), PDO::PARAM_STR);
+                $stmt_insert->bindValue(':fotos_medidores_urls', json_encode($fotos_urls['medidores']), PDO::PARAM_STR);
+                $stmt_insert->bindValue(':fotos_observaciones_urls', json_encode($fotos_urls['observaciones']), PDO::PARAM_STR);
                 $stmt_insert->execute();
 
                 $stmt_update_sol = $db->prepare("UPDATE solicitudes_vehiculos SET estatus_solicitud = 'en_curso' WHERE id = :solicitud_id");
@@ -172,11 +190,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_uso'])) {
                     throw new Exception("El kilometraje de regreso no puede ser menor que el de salida.");
                 }
 
-                $stmt_update_hist = $db->prepare("UPDATE historial_uso_vehiculos SET kilometraje_regreso = :kilometraje, nivel_combustible_regreso = :nivel_combustible, fecha_regreso_real = NOW(), observaciones_regreso = :observaciones, fotos_regreso_url = :fotos_urls WHERE id = :historial_id");
+                $stmt_update_hist = $db->prepare("UPDATE historial_uso_vehiculos SET kilometraje_regreso = :kilometraje, nivel_combustible_regreso = :nivel_combustible, fecha_regreso_real = NOW(), observaciones_regreso = :observaciones, fotos_regreso_medidores_url = :fotos_medidores_urls, fotos_regreso_observaciones_url = :fotos_observaciones_urls WHERE id = :historial_id");
                 $stmt_update_hist->bindParam(':kilometraje', $kilometraje);
                 $stmt_update_hist->bindParam(':nivel_combustible', $nivel_combustible);
                 $stmt_update_hist->bindParam(':observaciones', $observaciones);
-                $stmt_update_hist->bindValue(':fotos_urls', json_encode($fotos_urls), PDO::PARAM_STR);
+                $stmt_update_hist->bindValue(':fotos_medidores_urls', json_encode($fotos_urls['medidores']), PDO::PARAM_STR);
+                $stmt_update_hist->bindValue(':fotos_observaciones_urls', json_encode($fotos_urls['observaciones']), PDO::PARAM_STR);
                 $stmt_update_hist->bindParam(':historial_id', $historial_entry['id']);
                 $stmt_update_hist->execute();
 
@@ -226,12 +245,14 @@ if ($db) {
                 hu.nivel_combustible_salida,
                 hu.fecha_salida_real,
                 hu.observaciones_salida,
-                hu.fotos_salida_url,
+                hu.fotos_salida_medidores_url,
+                hu.fotos_salida_observaciones_url,
                 hu.kilometraje_regreso,
                 hu.nivel_combustible_regreso,
                 hu.fecha_regreso_real,
                 hu.observaciones_regreso,
-                hu.fotos_regreso_url
+                hu.fotos_regreso_medidores_url,
+                hu.fotos_regreso_observaciones_url
             FROM solicitudes_vehiculos s
             LEFT JOIN vehiculos v ON s.vehiculo_id = v.id
             LEFT JOIN historial_uso_vehiculos hu ON s.id = hu.solicitud_id
@@ -404,12 +425,14 @@ if (isset($_GET['error'])) {
                                             data-gas-salida="<?php echo htmlspecialchars($solicitud['nivel_combustible_salida'] ?? ''); ?>"
                                             data-fecha-salida-real="<?php echo htmlspecialchars($solicitud['fecha_salida_real'] ?? ''); ?>"
                                             data-obs-salida="<?php echo htmlspecialchars($solicitud['observaciones_salida'] ?? ''); ?>"
-                                            data-fotos-salida="<?php echo htmlspecialchars($solicitud['fotos_salida_url'] ?? '[]'); ?>"
+                                            data-fotos-salida-medidores="<?php echo htmlspecialchars($solicitud['fotos_salida_medidores_url'] ?? '[]'); ?>"
+                                            data-fotos-salida-observaciones="<?php echo htmlspecialchars($solicitud['fotos_salida_observaciones_url'] ?? '[]'); ?>"
                                             data-km-regreso="<?php echo htmlspecialchars($solicitud['kilometraje_regreso'] ?? ''); ?>"
                                             data-gas-regreso="<?php echo htmlspecialchars($solicitud['nivel_combustible_regreso'] ?? ''); ?>"
                                             data-fecha-regreso-real="<?php echo htmlspecialchars($solicitud['fecha_regreso_real'] ?? ''); ?>"
                                             data-obs-regreso="<?php echo htmlspecialchars($solicitud['observaciones_regreso'] ?? ''); ?>"
-                                            data-fotos-regreso="<?php echo htmlspecialchars($solicitud['fotos_regreso_url'] ?? '[]'); ?>">
+                                            data-fotos-regreso-medidores="<?php echo htmlspecialchars($solicitud['fotos_regreso_medidores_url'] ?? '[]'); ?>"
+                                            data-fotos-regreso-observaciones="<?php echo htmlspecialchars($solicitud['fotos_regreso_observaciones_url'] ?? '[]'); ?>">
                                             <i class="bi bi-eye"></i> Ver Detalles
                                         </button>
                                     </div>
@@ -445,13 +468,18 @@ if (isset($_GET['error'])) {
                                 <input type="number" class="form-control" id="nivel_combustible" name="nivel_combustible" min="0" max="100" required>
                             </div>
                             <div class="mb-3">
+                                <label for="fotos_medidores" class="form-label">Fotos de Evidencia del Kilometraje y Nivel de Combustible</label>
+                                <input type="file" class="form-control" id="fotos_medidores" name="fotos_medidores[]" accept="image/*" multiple>
+                                <small class="form-text text-muted">Sube fotos claras del tablero mostrando el kilometraje y del medidor de combustible (máx. <?php echo ini_get('upload_max_filesize'); ?> por archivo).</small>
+                            </div>
+                            <div class="mb-3">
                                 <label for="observaciones" class="form-label">Observaciones (detalles, golpes, limpieza)</label>
                                 <textarea class="form-control" id="observaciones" name="observaciones" rows="3"></textarea>
                             </div>
                             <div class="mb-3">
-                                <label for="fotos" class="form-label">Subir Fotos de Evidencia</label>
-                                <input type="file" class="form-control" id="fotos" name="fotos[]" accept="image/*" multiple>
-                                <small class="form-text text-muted">Puedes subir varias imágenes (máx. <?php echo ini_get('upload_max_filesize'); ?> por archivo).</small>
+                                <label for="fotos_observaciones" class="form-label">Fotos de Evidencia de las Observaciones</label>
+                                <input type="file" class="form-control" id="fotos_observaciones" name="fotos_observaciones[]" accept="image/*" multiple>
+                                <small class="form-text text-muted">Sube fotos que evidencien los detalles mencionados en las observaciones (golpes, limpieza, etc.) (máx. <?php echo ini_get('upload_max_filesize'); ?> por archivo).</small>
                             </div>
                         </div>
                         <div class="modal-footer">
@@ -651,22 +679,45 @@ if (isset($_GET['error'])) {
                     // Cargar fotos de salida
                     var fotosSalidaContainer = document.getElementById('detailFotosSalida');
                     fotosSalidaContainer.innerHTML = '';
-                    var fotosSalidaUrls = JSON.parse(button.getAttribute('data-fotos-salida') || '[]');
-                    if (fotosSalidaUrls.length > 0) {
-                        fotosSalidaUrls.forEach(url => {
-                            var col = document.createElement('div');
-                            col.className = 'col-6 col-md-4 mb-3';
-                            var img = document.createElement('img');
-                            img.src = url;
-                            img.alt = 'Evidencia de salida';
-                            img.className = 'img-fluid rounded shadow-sm';
-                            img.style.cursor = 'pointer';
-                            img.onclick = () => window.open(url, '_blank');
-                            col.appendChild(img);
-                            fotosSalidaContainer.appendChild(col);
-                        });
+                    var fotosSalidaMedidores = JSON.parse(button.getAttribute('data-fotos-salida-medidores') || '[]');
+                    var fotosSalidaObservaciones = JSON.parse(button.getAttribute('data-fotos-salida-observaciones') || '[]');
+                    
+                    if (fotosSalidaMedidores.length > 0 || fotosSalidaObservaciones.length > 0) {
+                        // Mostrar fotos de medidores
+                        if (fotosSalidaMedidores.length > 0) {
+                            fotosSalidaContainer.innerHTML += '<div class="col-12"><h6>Fotos de Kilometraje y Combustible:</h6></div>';
+                            fotosSalidaMedidores.forEach(url => {
+                                var col = document.createElement('div');
+                                col.className = 'col-6 col-md-4 mb-3';
+                                var img = document.createElement('img');
+                                img.src = url;
+                                img.alt = 'Evidencia de medidores en salida';
+                                img.className = 'img-fluid rounded shadow-sm';
+                                img.style.cursor = 'pointer';
+                                img.onclick = () => window.open(url, '_blank');
+                                col.appendChild(img);
+                                fotosSalidaContainer.appendChild(col);
+                            });
+                        }
+                        
+                        // Mostrar fotos de observaciones
+                        if (fotosSalidaObservaciones.length > 0) {
+                            fotosSalidaContainer.innerHTML += '<div class="col-12"><h6 class="mt-3">Fotos de Observaciones:</h6></div>';
+                            fotosSalidaObservaciones.forEach(url => {
+                                var col = document.createElement('div');
+                                col.className = 'col-6 col-md-4 mb-3';
+                                var img = document.createElement('img');
+                                img.src = url;
+                                img.alt = 'Evidencia de observaciones en salida';
+                                img.className = 'img-fluid rounded shadow-sm';
+                                img.style.cursor = 'pointer';
+                                img.onclick = () => window.open(url, '_blank');
+                                col.appendChild(img);
+                                fotosSalidaContainer.appendChild(col);
+                            });
+                        }
                     } else {
-                        fotosSalidaContainer.innerHTML = '<div class="col-12"><p class="text-muted">No hay fotos de salida.</p></div>';
+                        fotosSalidaContainer.innerHTML = '<div class="col-12"><p class="text-muted">No hay fotos de evidencia.</p></div>';
                     }
 
                     // Detalles de Regreso
@@ -681,22 +732,45 @@ if (isset($_GET['error'])) {
                         // Cargar fotos de regreso
                         var fotosRegresoContainer = document.getElementById('detailFotosRegreso');
                         fotosRegresoContainer.innerHTML = '';
-                        var fotosRegresoUrls = JSON.parse(button.getAttribute('data-fotos-regreso') || '[]');
-                        if (fotosRegresoUrls.length > 0) {
-                            fotosRegresoUrls.forEach(url => {
-                                var col = document.createElement('div');
-                                col.className = 'col-6 col-md-4 mb-3';
-                                var img = document.createElement('img');
-                                img.src = url;
-                                img.alt = 'Evidencia de regreso';
-                                img.className = 'img-fluid rounded shadow-sm';
-                                img.style.cursor = 'pointer';
-                                img.onclick = () => window.open(url, '_blank');
-                                col.appendChild(img);
-                                fotosRegresoContainer.appendChild(col);
-                            });
+                        var fotosRegresoMedidores = JSON.parse(button.getAttribute('data-fotos-regreso-medidores') || '[]');
+                        var fotosRegresoObservaciones = JSON.parse(button.getAttribute('data-fotos-regreso-observaciones') || '[]');
+                        
+                        if (fotosRegresoMedidores.length > 0 || fotosRegresoObservaciones.length > 0) {
+                            // Mostrar fotos de medidores
+                            if (fotosRegresoMedidores.length > 0) {
+                                fotosRegresoContainer.innerHTML += '<div class="col-12"><h6>Fotos de Kilometraje y Combustible:</h6></div>';
+                                fotosRegresoMedidores.forEach(url => {
+                                    var col = document.createElement('div');
+                                    col.className = 'col-6 col-md-4 mb-3';
+                                    var img = document.createElement('img');
+                                    img.src = url;
+                                    img.alt = 'Evidencia de medidores en regreso';
+                                    img.className = 'img-fluid rounded shadow-sm';
+                                    img.style.cursor = 'pointer';
+                                    img.onclick = () => window.open(url, '_blank');
+                                    col.appendChild(img);
+                                    fotosRegresoContainer.appendChild(col);
+                                });
+                            }
+                            
+                            // Mostrar fotos de observaciones
+                            if (fotosRegresoObservaciones.length > 0) {
+                                fotosRegresoContainer.innerHTML += '<div class="col-12"><h6 class="mt-3">Fotos de Observaciones:</h6></div>';
+                                fotosRegresoObservaciones.forEach(url => {
+                                    var col = document.createElement('div');
+                                    col.className = 'col-6 col-md-4 mb-3';
+                                    var img = document.createElement('img');
+                                    img.src = url;
+                                    img.alt = 'Evidencia de observaciones en regreso';
+                                    img.className = 'img-fluid rounded shadow-sm';
+                                    img.style.cursor = 'pointer';
+                                    img.onclick = () => window.open(url, '_blank');
+                                    col.appendChild(img);
+                                    fotosRegresoContainer.appendChild(col);
+                                });
+                            }
                         } else {
-                            fotosRegresoContainer.innerHTML = '<div class="col-12"><p class="text-muted">No hay fotos de regreso.</p></div>';
+                            fotosRegresoContainer.innerHTML = '<div class="col-12"><p class="text-muted">No hay fotos de evidencia.</p></div>';
                         }
 
                     } else {
