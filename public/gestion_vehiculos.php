@@ -12,10 +12,6 @@ if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] !== 'flotilla_manage
 
 $nombre_usuario = $_SESSION['user_name'];
 $rol_usuario = $_SESSION['user_role'];
-$nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
-$rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
-
-
 
 $success_message = '';
 $error_message = '';
@@ -113,7 +109,7 @@ if ($db) {
     try {
         $stmt = $db->query("SELECT * FROM vehiculos ORDER BY marca, modelo");
         $vehiculos = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
+    } catch (PDOException | Exception $e) { // Added Exception for broader error catching
         error_log("Error al cargar vehículos: " . $e->getMessage());
         $error_message = 'No se pudieron cargar los vehículos.';
     }
@@ -132,7 +128,10 @@ if ($db) {
 </head>
 
 <body>
-    <?php require_once '../app/includes/navbar.php'; // Incluir la barra de navegación 
+    <?php
+    $nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
+    $rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
+    require_once '../app/includes/navbar.php';
     ?>
 
     <div class="container mt-4">
@@ -236,7 +235,7 @@ if ($db) {
         <?php endif; ?>
 
         <div class="modal fade" id="addEditVehicleModal" tabindex="-1" aria-labelledby="addEditVehicleModalLabel" aria-hidden="true">
-            <div class="modal-dialog">
+            <div class="modal-dialog modal-lg">
                 <div class="modal-content">
                     <div class="modal-header">
                         <h5 class="modal-title" id="addEditVehicleModalLabel"></h5>
@@ -340,8 +339,8 @@ if ($db) {
         document.addEventListener('DOMContentLoaded', function() {
             var addEditVehicleModal = document.getElementById('addEditVehicleModal');
             addEditVehicleModal.addEventListener('show.bs.modal', function(event) {
-                var button = event.relatedTarget; // Botón que activó el modal
-                var action = button.getAttribute('data-action'); // 'add' o 'edit'
+                var button = event.relatedTarget;
+                var action = button.getAttribute('data-action');
 
                 var modalTitle = addEditVehicleModal.querySelector('#addEditVehicleModalLabel');
                 var modalActionInput = addEditVehicleModal.querySelector('#modalActionVehicle');
@@ -350,7 +349,6 @@ if ($db) {
                 var estatusField = addEditVehicleModal.querySelector('#estatusField');
                 var form = addEditVehicleModal.querySelector('form');
 
-                // Resetear el formulario y ocultar campos de edición
                 form.reset();
                 estatusField.style.display = 'none';
 
@@ -359,42 +357,42 @@ if ($db) {
                     modalActionInput.value = 'add';
                     submitBtn.textContent = 'Guardar Vehículo';
                     submitBtn.className = 'btn btn-primary';
-                    vehicleIdInput.value = ''; // Asegurarse de que el ID esté vacío para agregar
+                    vehicleIdInput.value = '';
                 } else if (action === 'edit') {
                     modalTitle.textContent = 'Editar Vehículo';
                     modalActionInput.value = 'edit';
                     submitBtn.textContent = 'Actualizar Vehículo';
-                    submitBtn.className = 'btn btn-info text-white'; // Estilo para el botón de editar
-                    estatusField.style.display = 'block'; // Mostrar el campo de estatus en edición
+                    submitBtn.className = 'btn btn-info text-white';
+                    estatusField.style.display = 'block';
 
-                    // Llenar el formulario con los datos del vehículo
                     vehicleIdInput.value = button.getAttribute('data-id');
                     addEditVehicleModal.querySelector('#marca').value = button.getAttribute('data-marca');
                     addEditVehicleModal.querySelector('#modelo').value = button.getAttribute('data-modelo');
                     addEditVehicleModal.querySelector('#anio').value = button.getAttribute('data-anio');
                     addEditVehicleModal.querySelector('#placas').value = button.getAttribute('data-placas');
-                    addEditVehicleModal.querySelector('#vin').value = button.getAttribute('data-vin') === 'null' ? '' : button.getAttribute('data-vin'); // Manejar 'null' para VIN
+                    addEditVehicleModal.querySelector('#vin').value = button.getAttribute('data-vin') === 'null' ? '' : button.getAttribute('data-vin');
                     addEditVehicleModal.querySelector('#tipo_combustible').value = button.getAttribute('data-tipo-combustible');
                     addEditVehicleModal.querySelector('#kilometraje_actual').value = button.getAttribute('data-kilometraje-actual');
                     addEditVehicleModal.querySelector('#estatus').value = button.getAttribute('data-estatus');
-                    addEditVehicleModal.querySelector('#ubicacion_actual').value = button.getAttribute('data-ubicacion-actual') === 'null' ? '' : button.getAttribute('data-ubicacion-actual'); // Manejar 'null' para ubicación
-                    addEditVehicleModal.querySelector('#observaciones_vehiculo').value = button.getAttribute('data-observaciones') === 'null' ? '' : button.getAttribute('data-observaciones'); // Manejar 'null' para observaciones
+                    addEditVehicleModal.querySelector('#ubicacion_actual').value = button.getAttribute('data-ubicacion-actual') === 'null' ? '' : button.getAttribute('data-ubicacion-actual');
+                    addEditVehicleModal.querySelector('#observaciones_vehiculo').value = button.getAttribute('data-observaciones') === 'null' ? '' : button.getAttribute('data-observaciones');
                 }
             });
 
-            // JavaScript para manejar el modal de eliminar vehículo
             var deleteVehicleModal = document.getElementById('deleteVehicleModal');
-            deleteVehicleModal.addEventListener('show.bs.modal', function(event) {
-                var button = event.relatedTarget; // Botón que activó el modal
-                var vehicleId = button.getAttribute('data-id');
-                var vehiclePlacas = button.getAttribute('data-placas');
+            if (deleteVehicleModal) {
+                deleteVehicleModal.addEventListener('show.bs.modal', function(event) {
+                    var button = event.relatedTarget;
+                    var vehicleId = button.getAttribute('data-id');
+                    var vehiclePlacas = button.getAttribute('data-placas');
 
-                var modalVehicleId = deleteVehicleModal.querySelector('#deleteVehicleId');
-                var modalVehiclePlacas = deleteVehicleModal.querySelector('#deleteVehiclePlacas');
+                    var modalVehicleId = deleteVehicleModal.querySelector('#deleteVehicleId');
+                    var modalVehiclePlacas = deleteVehicleModal.querySelector('#deleteVehiclePlacas');
 
-                modalVehicleId.value = vehicleId;
-                modalVehiclePlacas.textContent = vehiclePlacas;
-            });
+                    modalVehicleId.value = vehicleId;
+                    modalVehiclePlacas.textContent = vehiclePlacas;
+                });
+            }
         });
     </script>
 </body>
