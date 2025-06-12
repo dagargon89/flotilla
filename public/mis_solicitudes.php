@@ -265,6 +265,7 @@ if (isset($_GET['error'])) {
     <title>Mis Solicitudes - Flotilla Interna</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 </head>
 
 <body>
@@ -357,56 +358,61 @@ if (isset($_GET['error'])) {
                                     // Determinar qué botón mostrar según el estatus
                                     if ($solicitud['estatus_solicitud'] === 'aprobada' && empty($solicitud['historial_id'])):
                                     ?>
-                                        <button type="button" class="btn btn-primary btn-sm"
-                                            <?php echo ($current_user_estatus_usuario === 'suspendido' || $current_user_estatus_usuario === 'amonestado') ? 'disabled' : ''; ?>
-                                            data-bs-toggle="modal" data-bs-target="#useVehicleModal"
-                                            data-action="marcar_salida"
-                                            data-solicitud-id="<?php echo htmlspecialchars($solicitud['solicitud_id']); ?>"
-                                            data-vehiculo-id="<?php echo htmlspecialchars($solicitud['vehiculo_id']); ?>"
-                                            data-vehiculo-info="<?php echo htmlspecialchars($solicitud['marca'] . ' ' . $solicitud['modelo'] . ' - ' . $solicitud['placas']); ?>"
-                                            data-kilometraje-actual="<?php echo htmlspecialchars($solicitud['kilometraje_actual'] ?? 0); ?>">
-                                            Marcar Salida
-                                        </button>
-                                    <?php elseif ($solicitud['estatus_solicitud'] === 'en_curso' && !empty($solicitud['historial_id'])):
-                                    ?>
-                                        <button type="button" class="btn btn-secondary btn-sm"
-                                            <?php echo ($current_user_estatus_usuario === 'suspendido' || $current_user_estatus_usuario === 'amonestado') ? 'disabled' : ''; ?>
-                                            data-bs-toggle="modal" data-bs-target="#useVehicleModal"
-                                            data-action="marcar_regreso"
-                                            data-solicitud-id="<?php echo htmlspecialchars($solicitud['solicitud_id']); ?>"
-                                            data-vehiculo-id="<?php echo htmlspecialchars($solicitud['vehiculo_id']); ?>"
-                                            data-vehiculo-info="<?php echo htmlspecialchars($solicitud['marca'] . ' ' . $solicitud['modelo'] . ' - ' . $solicitud['placas']); ?>"
-                                            data-kilometraje-actual="<?php echo htmlspecialchars($solicitud['kilometraje_actual'] ?? 0); ?>">
-                                            Marcar Regreso
-                                        </button>
+                                        <div class="table-actions-cell">
+                                            <button type="button" class="btn btn-primary btn-sm"
+                                                <?php echo ($current_user_estatus_usuario === 'suspendido' || $current_user_estatus_usuario === 'amonestado') ? 'disabled' : ''; ?>
+                                                data-bs-toggle="modal" data-bs-target="#useVehicleModal"
+                                                data-action="marcar_salida"
+                                                data-solicitud-id="<?php echo htmlspecialchars($solicitud['solicitud_id']); ?>"
+                                                data-vehiculo-id="<?php echo htmlspecialchars($solicitud['vehiculo_id']); ?>"
+                                                data-vehiculo-info="<?php echo htmlspecialchars($solicitud['marca'] . ' ' . $solicitud['modelo'] . ' - ' . $solicitud['placas']); ?>"
+                                                data-kilometraje-actual="<?php echo htmlspecialchars($solicitud['kilometraje_actual'] ?? 0); ?>">
+                                                <i class="bi bi-box-arrow-right"></i> Marcar Salida
+                                            </button>
+                                        </div>
+                                    <?php elseif ($solicitud['estatus_solicitud'] === 'en_curso' && !empty($solicitud['historial_id'])): ?>
+                                        <div class="table-actions-cell">
+                                            <button type="button" class="btn btn-secondary btn-sm"
+                                                <?php echo ($current_user_estatus_usuario === 'suspendido' || $current_user_estatus_usuario === 'amonestado') ? 'disabled' : ''; ?>
+                                                data-bs-toggle="modal" data-bs-target="#useVehicleModal"
+                                                data-action="marcar_regreso"
+                                                data-solicitud-id="<?php echo htmlspecialchars($solicitud['solicitud_id']); ?>"
+                                                data-vehiculo-id="<?php echo htmlspecialchars($solicitud['vehiculo_id']); ?>"
+                                                data-vehiculo-info="<?php echo htmlspecialchars($solicitud['marca'] . ' ' . $solicitud['modelo'] . ' - ' . $solicitud['placas']); ?>"
+                                                data-kilometraje-actual="<?php echo htmlspecialchars($solicitud['kilometraje_actual'] ?? 0); ?>">
+                                                <i class="bi bi-box-arrow-in-left"></i> Marcar Regreso
+                                            </button>
+                                        </div>
                                     <?php else: ?>
                                         <span class="text-muted">N/A</span>
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <button type="button" class="btn btn-sm btn-info text-white" data-bs-toggle="modal" data-bs-target="#viewDetailsModal"
-                                        data-solicitud-id="<?php echo htmlspecialchars($solicitud['solicitud_id']); ?>"
-                                        data-fecha-salida="<?php echo htmlspecialchars($solicitud['fecha_salida_solicitada']); ?>"
-                                        data-fecha-regreso="<?php echo htmlspecialchars($solicitud['fecha_regreso_solicitada'] ?? ''); ?>"
-                                        data-evento="<?php echo htmlspecialchars($solicitud['evento']); ?>"
-                                        data-descripcion="<?php echo htmlspecialchars($solicitud['descripcion']); ?>"
-                                        data-destino="<?php echo htmlspecialchars($solicitud['destino']); ?>"
-                                        data-vehiculo-info="<?php echo htmlspecialchars($solicitud['marca'] ? $solicitud['marca'] . ' ' . $solicitud['modelo'] . ' (' . $solicitud['placas'] . ')' : 'Sin asignar'); ?>"
-                                        data-estatus="<?php echo htmlspecialchars(ucfirst($solicitud['estatus_solicitud'])); ?>"
-                                        data-observaciones-aprobacion="<?php echo htmlspecialchars($solicitud['observaciones_aprobacion'] ?? ''); ?>"
-                                        data-historial-id="<?php echo htmlspecialchars($solicitud['historial_id'] ?? ''); ?>"
-                                        data-km-salida="<?php echo htmlspecialchars($solicitud['kilometraje_salida'] ?? ''); ?>"
-                                        data-gas-salida="<?php echo htmlspecialchars($solicitud['nivel_combustible_salida'] ?? ''); ?>"
-                                        data-fecha-salida-real="<?php echo htmlspecialchars($solicitud['fecha_salida_real'] ?? ''); ?>"
-                                        data-obs-salida="<?php echo htmlspecialchars($solicitud['observaciones_salida'] ?? ''); ?>"
-                                        data-fotos-salida="<?php echo htmlspecialchars($solicitud['fotos_salida_url'] ?? '[]'); ?>"
-                                        data-km-regreso="<?php echo htmlspecialchars($solicitud['kilometraje_regreso'] ?? ''); ?>"
-                                        data-gas-regreso="<?php echo htmlspecialchars($solicitud['nivel_combustible_regreso'] ?? ''); ?>"
-                                        data-fecha-regreso-real="<?php echo htmlspecialchars($solicitud['fecha_regreso_real'] ?? ''); ?>"
-                                        data-obs-regreso="<?php echo htmlspecialchars($solicitud['observaciones_regreso'] ?? ''); ?>"
-                                        data-fotos-regreso="<?php echo htmlspecialchars($solicitud['fotos_regreso_url'] ?? '[]'); ?>">
-                                        Ver Detalles
-                                    </button>
+                                    <div class="table-actions-cell">
+                                        <button type="button" class="btn btn-info btn-sm text-white" data-bs-toggle="modal" data-bs-target="#viewDetailsModal"
+                                            data-solicitud-id="<?php echo htmlspecialchars($solicitud['solicitud_id']); ?>"
+                                            data-fecha-salida="<?php echo htmlspecialchars($solicitud['fecha_salida_solicitada']); ?>"
+                                            data-fecha-regreso="<?php echo htmlspecialchars($solicitud['fecha_regreso_solicitada'] ?? ''); ?>"
+                                            data-evento="<?php echo htmlspecialchars($solicitud['evento']); ?>"
+                                            data-descripcion="<?php echo htmlspecialchars($solicitud['descripcion']); ?>"
+                                            data-destino="<?php echo htmlspecialchars($solicitud['destino']); ?>"
+                                            data-vehiculo-info="<?php echo htmlspecialchars($solicitud['marca'] ? $solicitud['marca'] . ' ' . $solicitud['modelo'] . ' (' . $solicitud['placas'] . ')' : 'Sin asignar'); ?>"
+                                            data-estatus="<?php echo htmlspecialchars(ucfirst($solicitud['estatus_solicitud'])); ?>"
+                                            data-observaciones-aprobacion="<?php echo htmlspecialchars($solicitud['observaciones_aprobacion'] ?? ''); ?>"
+                                            data-historial-id="<?php echo htmlspecialchars($solicitud['historial_id'] ?? ''); ?>"
+                                            data-km-salida="<?php echo htmlspecialchars($solicitud['kilometraje_salida'] ?? ''); ?>"
+                                            data-gas-salida="<?php echo htmlspecialchars($solicitud['nivel_combustible_salida'] ?? ''); ?>"
+                                            data-fecha-salida-real="<?php echo htmlspecialchars($solicitud['fecha_salida_real'] ?? ''); ?>"
+                                            data-obs-salida="<?php echo htmlspecialchars($solicitud['observaciones_salida'] ?? ''); ?>"
+                                            data-fotos-salida="<?php echo htmlspecialchars($solicitud['fotos_salida_url'] ?? '[]'); ?>"
+                                            data-km-regreso="<?php echo htmlspecialchars($solicitud['kilometraje_regreso'] ?? ''); ?>"
+                                            data-gas-regreso="<?php echo htmlspecialchars($solicitud['nivel_combustible_regreso'] ?? ''); ?>"
+                                            data-fecha-regreso-real="<?php echo htmlspecialchars($solicitud['fecha_regreso_real'] ?? ''); ?>"
+                                            data-obs-regreso="<?php echo htmlspecialchars($solicitud['observaciones_regreso'] ?? ''); ?>"
+                                            data-fotos-regreso="<?php echo htmlspecialchars($solicitud['fotos_regreso_url'] ?? '[]'); ?>">
+                                            <i class="bi bi-eye"></i> Ver Detalles
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         <?php endforeach; ?>

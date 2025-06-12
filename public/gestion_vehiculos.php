@@ -168,6 +168,7 @@ if ($db) {
     <title>Gestión de Vehículos - Flotilla Interna</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 </head>
 
 <body>
@@ -253,8 +254,7 @@ if ($db) {
                                 <td>
                                     <a href="detalle_vehiculo.php?id=<?php echo $vehiculo['id']; ?>" class="btn btn-sm btn-secondary me-1">
                                         Ver Detalles
-                                    </a>
-                                    <button type="button" class="btn btn-sm btn-info text-white me-1" data-bs-toggle="modal" data-bs-target="#addEditVehicleModal" data-action="edit"
+                                    </a> <button type="button" class="btn btn-sm btn-info text-white me-1" data-bs-toggle="modal" data-bs-target="#addEditVehicleModal" data-action="edit"
                                         data-id="<?php echo $vehiculo['id']; ?>"
                                         data-marca="<?php echo htmlspecialchars($vehiculo['marca']); ?>"
                                         data-modelo="<?php echo htmlspecialchars($vehiculo['modelo']); ?>"
@@ -266,10 +266,10 @@ if ($db) {
                                         data-estatus="<?php echo htmlspecialchars($vehiculo['estatus']); ?>"
                                         data-ubicacion-actual="<?php echo htmlspecialchars($vehiculo['ubicacion_actual']); ?>"
                                         data-observaciones="<?php echo htmlspecialchars($vehiculo['observaciones']); ?>">
-                                        Editar
+                                        <i class="bi bi-pencil-square"></i> Editar
                                     </button>
                                     <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#deleteVehicleModal" data-id="<?php echo $vehiculo['id']; ?>" data-placas="<?php echo htmlspecialchars($vehiculo['placas']); ?>">
-                                        Eliminar
+                                        <i class="bi bi-trash"></i> Eliminar
                                     </button>
                                 </td>
                             </tr>

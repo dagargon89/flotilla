@@ -220,6 +220,7 @@ if ($db) {
     <title>Gestión de Solicitudes - Flotilla Interna</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 </head>
 
 <body>
@@ -312,7 +313,7 @@ if ($db) {
                                 </td>
                                 <td>
                                     <?php if ($solicitud['estatus_solicitud'] === 'pendiente'): ?>
-                                        <div class="d-flex flex-column flex-md-row gap-1">
+                                        <div class="table-actions-cell">
                                             <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#approveRejectModal"
                                                 data-solicitud-id="<?php echo $solicitud['solicitud_id']; ?>" data-action="aprobar"
                                                 data-usuario="<?php echo htmlspecialchars($solicitud['usuario_nombre']); ?>"
@@ -321,17 +322,17 @@ if ($db) {
                                                 data-observaciones-aprobacion="<?php echo htmlspecialchars($solicitud['observaciones_aprobacion']); ?>"
                                                 data-vehiculo-actual-id="<?php echo htmlspecialchars($solicitud['vehiculo_actual_id']); ?>"
                                                 data-vehiculo-info-display="<?php echo htmlspecialchars($solicitud['marca'] ? $solicitud['marca'] . ' ' . $solicitud['modelo'] . ' (' . $solicitud['placas'] . ')' : 'Sin asignar'); ?>">
-                                                Aprobar
+                                                <i class="bi bi-check-circle"></i> Aprobar
                                             </button>
                                             <button type="button" class="btn btn-danger btn-sm" data-bs-toggle="modal" data-bs-target="#approveRejectModal"
                                                 data-solicitud-id="<?php echo $solicitud['solicitud_id']; ?>" data-action="rechazar"
                                                 data-usuario="<?php echo htmlspecialchars($solicitud['usuario_nombre']); ?>"
                                                 data-observaciones-aprobacion="<?php echo htmlspecialchars($solicitud['observaciones_aprobacion']); ?>">
-                                                Rechazar
+                                                <i class="bi bi-x-circle"></i> Rechazar
                                             </button>
                                         </div>
                                     <?php else: ?>
-                                        <button type="button" class="btn btn-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#viewDetailsModal"
+                                        <button type="button" class="btn btn-info btn-sm text-white" data-bs-toggle="modal" data-bs-target="#viewDetailsModal"
                                             data-solicitud-id="<?php echo $solicitud['solicitud_id']; ?>"
                                             data-usuario="<?php echo htmlspecialchars($solicitud['usuario_nombre']); ?>"
                                             data-salida="<?php echo htmlspecialchars($solicitud['fecha_salida_solicitada']); ?>"
@@ -342,7 +343,7 @@ if ($db) {
                                             data-vehiculo="<?php echo htmlspecialchars($solicitud['marca'] ? $solicitud['marca'] . ' ' . $solicitud['modelo'] . ' (' . $solicitud['placas'] . ')' : 'Sin asignar'); ?>"
                                             data-estatus="<?php echo htmlspecialchars(ucfirst($solicitud['estatus_solicitud'])); ?>"
                                             data-observaciones-aprobacion="<?php echo htmlspecialchars($solicitud['observaciones_aprobacion']); ?>">
-                                            Ver Detalles
+                                            <i class="bi bi-eye"></i> Ver Detalles
                                         </button>
                                     <?php endif; ?>
                                 </td>
