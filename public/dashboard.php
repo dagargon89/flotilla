@@ -1,9 +1,55 @@
 <?php
-// public/dashboard.php - CÓDIGO COMPLETO Y ACTUALIZADO (Conteo Simple de Vehículos Disponibles)
+// public/dashboard.php - CÓDIGO COMPLETO Y CORREGIDO (Error Undefined $db)
 session_start(); // Siempre inicia la sesión al principio
 
 // Incluye el archivo de conexión a la base de datos
 require_once '../app/config/database.php';
+
+// ¡CORRECCIÓN CRÍTICA! Establecer la conexión a la base de datos aquí, al inicio.
+$db = connectDB();
+
+// Fetch current user's detailed status and amonestaciones for banner and logic
+$current_user_estatus_usuario = $_SESSION['user_role'] ?? 'empleado'; // Default, will be overwritten
+$current_user_amonestaciones_count = 0;
+$current_user_recent_amonestaciones_text = ''; // Texto para el banner
+
+if (isset($_SESSION['user_id']) && $db) { // Asegurarse de que la sesión y la conexión a la DB estén activas
+    try {
+        // Obtener el estatus_usuario del usuario logueado desde la DB (más fiable que la sesión sola)
+        $stmt_user_full_status = $db->prepare("SELECT estatus_usuario FROM usuarios WHERE id = :user_id");
+        $stmt_user_full_status->bindParam(':user_id', $_SESSION['user_id']);
+        $stmt_user_full_status->execute();
+        $user_full_status_result = $stmt_user_full_status->fetch(PDO::FETCH_ASSOC);
+        if ($user_full_status_result) {
+            $current_user_estatus_usuario = $user_full_status_result['estatus_usuario'];
+            // Actualizar la sesión con el estatus de uso actual (opcional pero buena práctica)
+            $_SESSION['user_estatus_usuario'] = $current_user_estatus_usuario;
+        }
+
+        // Si el usuario está 'amonestado', obtener los detalles de las amonestaciones para el banner
+        if ($current_user_estatus_usuario === 'amonestado') {
+            $stmt_amonestaciones = $db->prepare("
+                SELECT COUNT(*) as total_count,
+                       GROUP_CONCAT(CONCAT(DATE_FORMAT(fecha_amonestacion, '%d/%m'), ' (', tipo_amonestacion, ')') ORDER BY fecha_amonestacion DESC SEPARATOR '; ') AS recent_descriptions
+                FROM amonestaciones
+                WHERE usuario_id = :user_id
+                LIMIT 3 -- Traer las últimas 3 amonestaciones para el resumen
+            ");
+            $stmt_amonestaciones->bindParam(':user_id', $_SESSION['user_id']);
+            $stmt_amonestaciones->execute();
+            $amonestacion_data = $stmt_amonestaciones->fetch(PDO::FETCH_ASSOC);
+
+            if ($amonestacion_data) {
+                $current_user_amonestaciones_count = $amonestacion_data['total_count'];
+                $current_user_recent_amonestaciones_text = $amonestacion_data['recent_descriptions'] ?: 'Ninguna reciente.';
+            }
+        }
+    } catch (PDOException $e) {
+        error_log("Error al obtener estatus de usuario/amonestaciones para banner: " . $e->getMessage());
+        $current_user_estatus_usuario = 'activo';
+        $error_message = 'Error al cargar tu estatus o amonestaciones. Contacta al administrador.';
+    }
+}
 
 // **VERIFICACIÓN DE SESIÓN:**
 // Si el usuario NO está logueado, lo redirigimos de vuelta al login.
@@ -13,16 +59,17 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 // Datos del usuario logueado (los obtuvimos del login y los guardamos en la sesión)
+// Nota: $nombre_usuario y $rol_usuario ya deberían estar definidos en la sesión o ser los mismos que $nombre_usuario_sesion y $rol_usuario_sesion
 $nombre_usuario = $_SESSION['user_name'] ?? 'Usuario';
-$rol_usuario = $_SESSION['user_role'] ?? 'empleado'; // Por si acaso no se definió el rol
+$rol_usuario = $_SESSION['user_role'] ?? 'empleado';
 
-// Lógica para conectar a la BD y obtener datos del dashboard
-$db = connectDB();
+// Lógica para obtener datos del dashboard (contadores)
+// La conexión $db ya está establecida al inicio del script.
 $vehiculos_disponibles_count = 0;
 $mis_solicitudes_pendientes_count = 0;
 $solicitudes_por_aprobar_count = 0;
 
-if ($db) {
+if ($db) { // Usamos $db aquí, que ya está definido.
     try {
         // LÓGICA SIMPLIFICADA PARA EL CONTADOR DE VEHÍCULOS DISPONIBLES EN EL DASHBOARD:
         // Solo cuenta los vehículos cuyo estatus en la tabla 'vehiculos' es directamente 'disponible'.
@@ -46,16 +93,15 @@ if ($db) {
             $stmt_por_aprobar->execute();
             $solicitudes_por_aprobar_count = $stmt_por_aprobar->fetchColumn();
         }
-
     } catch (PDOException $e) {
         error_log("Error al cargar datos del dashboard: " . $e->getMessage());
-        // No mostramos el error al usuario, solo en logs
     }
 }
 ?>
 
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -64,12 +110,14 @@ if ($db) {
     <link rel="stylesheet" href="css/style.css">
     <link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/main.min.css' rel='stylesheet' />
 </head>
+
 <body>
     <?php
-    // Asegúrate de definir estas variables ANTES de incluir la navbar
     $nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
     $rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
     require_once '../app/includes/navbar.php'; // Incluir la barra de navegación
+    ?>
+    <?php require_once '../app/includes/alert_banner.php'; // Incluir el banner de alertas 
     ?>
 
     <div class="container mt-4">
@@ -141,13 +189,18 @@ if ($db) {
                 eventClick: function(info) {
                     var event = info.event;
                     var msg = 'Vehículo: ' + event.extendedProps.vehiculo +
-                              '\nSolicitante: ' + event.extendedProps.solicitante +
-                              '\nPropósito: ' + event.extendedProps.proposito +
-                              '\nEstatus: ' + event.extendedProps.estatus +
-                              '\nInicio: ' + event.start.toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' }) +
-                              '\nFin: ' + event.end.toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
+                        '\nSolicitante: ' + event.extendedProps.solicitante +
+                        '\nPropósito: ' + event.extendedProps.proposito + // Nota: aquí sigue 'proposito', si ya no existe en la BD el API no lo regresará. Considerar cambiarlo a 'descripcion' o 'evento'.
+                        '\nEstatus: ' + event.extendedProps.estatus +
+                        '\nInicio: ' + event.start.toLocaleString('es-MX', {
+                            dateStyle: 'medium',
+                            timeStyle: 'short'
+                        }) +
+                        '\nFin: ' + event.end.toLocaleString('es-MX', {
+                            dateStyle: 'medium',
+                            timeStyle: 'short'
+                        });
                     alert(msg);
-                    // Aquí podrías abrir un modal de Bootstrap con más detalles en lugar de alert
                 },
                 // Opcional: Personalizar el texto para cuando no hay eventos
                 noEventsContent: 'No hay vehículos reservados para estas fechas.',
@@ -156,5 +209,7 @@ if ($db) {
             calendar.render(); // Renderiza el calendario
         });
     </script>
-    <script src="js/main.js"></script> </body>
+    <script src="js/main.js"></script>
+</body>
+
 </html>

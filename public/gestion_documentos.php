@@ -1,22 +1,68 @@
 <?php
-// public/gestion_documentos.php - CÓDIGO COMPLETO (Recién creado)
+// public/gestion_documentos.php - CÓDIGO COMPLETO Y CORREGIDO (Error Undefined $db)
 session_start();
 require_once '../app/config/database.php';
 
+// ¡CORRECCIÓN CRÍTICA! Establecer la conexión a la base de datos aquí, al inicio.
+$db = connectDB();
+
+// Fetch current user's detailed status and amonestaciones for banner and logic
+$current_user_estatus_usuario = $_SESSION['user_role'] ?? 'empleado'; // Default, will be overwritten
+$current_user_amonestaciones_count = 0;
+$current_user_recent_amonestaciones_text = ''; // Texto para el banner
+
+if (isset($_SESSION['user_id']) && $db) {
+    try {
+        // Obtener el estatus_usuario del usuario logueado desde la DB (más fiable que la sesión sola)
+        $stmt_user_full_status = $db->prepare("SELECT estatus_usuario FROM usuarios WHERE id = :user_id");
+        $stmt_user_full_status->bindParam(':user_id', $_SESSION['user_id']);
+        $stmt_user_full_status->execute();
+        $user_full_status_result = $stmt_user_full_status->fetch(PDO::FETCH_ASSOC);
+        if ($user_full_status_result) {
+            $current_user_estatus_usuario = $user_full_status_result['estatus_usuario'];
+            $_SESSION['user_estatus_usuario'] = $current_user_estatus_usuario; // Actualizar la sesión
+        }
+
+        // Si el usuario está 'amonestado', obtener los detalles de las amonestaciones para el banner
+        if ($current_user_estatus_usuario === 'amonestado') {
+            $stmt_amonestaciones = $db->prepare("
+                SELECT COUNT(*) as total_count,
+                       GROUP_CONCAT(CONCAT(DATE_FORMAT(fecha_amonestacion, '%d/%m'), ' (', tipo_amonestacion, ')') ORDER BY fecha_amonestacion DESC SEPARATOR '; ') AS recent_descriptions
+                FROM amonestaciones
+                WHERE usuario_id = :user_id
+                LIMIT 3
+            ");
+            $stmt_amonestaciones->bindParam(':user_id', $_SESSION['user_id']);
+            $stmt_amonestaciones->execute();
+            $amonestacion_data = $stmt_amonestaciones->fetch(PDO::FETCH_ASSOC);
+
+            if ($amonestacion_data) {
+                $current_user_amonestaciones_count = $amonestacion_data['total_count'];
+                $current_user_recent_amonestaciones_text = $amonestacion_data['recent_descriptions'] ?: 'Ninguna reciente.';
+            }
+        }
+    } catch (PDOException $e) {
+        error_log("Error al obtener estatus de usuario/amonestaciones para banner: " . $e->getMessage());
+        $current_user_estatus_usuario = 'activo';
+        $error_message = 'Error al cargar tu estatus o amonestaciones. Contacta al administrador.';
+    }
+}
+
+
 // **VERIFICACIÓN DE ROL:**
-// Solo 'flotilla_manager' y 'admin' pueden acceder a esta página.
-if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] !== 'flotilla_manager' && $_SESSION['user_role'] !== 'admin')) {
+// Solo 'admin' puede acceder a esta página (corregido de la versión anterior).
+if (!isset($_SESSION['user_id']) || $_SESSION['user_role'] !== 'admin') {
     header('Location: dashboard.php'); // Redirige al dashboard si no tiene permisos
     exit();
 }
 
-$nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
-$rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
+$nombre_usuario_sesion = $_SESSION['user_name'];
+$rol_usuario_sesion = $_SESSION['user_role'];
 $user_id_sesion = $_SESSION['user_id'];
 
 $success_message = '';
-$error_message = '';
-$db = connectDB();
+$error_message = $error_message ?? ''; // Mantener el error si ya viene del bloque de amonestaciones
+
 $documentos = []; // Para guardar la lista de documentos
 $vehiculos_flotilla = []; // Para el dropdown de vehículos en los modales
 
@@ -88,10 +134,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // Si se sube un nuevo archivo, procesarlo
             if (!empty($uploaded_file['name']) && $uploaded_file['error'] === UPLOAD_ERR_OK) {
-                // Opcional: Eliminar el archivo anterior si existe
-                // $old_file_path = str_replace('/flotilla', '/var/www/html/flotilla', $current_ruta_archivo);
-                // if (file_exists($old_file_path)) { unlink($old_file_path); }
-
                 $file_ext = pathinfo($uploaded_file['name'], PATHINFO_EXTENSION);
                 $new_file_name = uniqid('doc_') . '.' . $file_ext;
                 $destination_path = $upload_dir . $new_file_name;
@@ -121,18 +163,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception("ID de documento inválido para eliminar.");
             }
 
-            // Opcional: Eliminar el archivo físico del servidor antes de borrar el registro
             $stmt_get_file = $db->prepare("SELECT ruta_archivo FROM documentos_vehiculos WHERE id = :id");
             $stmt_get_file->bindParam(':id', $id);
             $stmt_get_file->execute();
             $file_to_delete = $stmt_get_file->fetch(PDO::FETCH_ASSOC);
 
             if ($file_to_delete && !empty($file_to_delete['ruta_archivo'])) {
-                // Convertir la URL web a ruta de sistema de archivos
-                // Asegúrate de que '/flotilla' en la URL web se mapea a '/var/www/html/flotilla' en el sistema de archivos
                 $file_path_on_server = str_replace('/flotilla', '/var/www/html/flotilla', $file_to_delete['ruta_archivo']);
                 if (file_exists($file_path_on_server)) {
-                    unlink($file_path_on_server); // Elimina el archivo físico
+                    unlink($file_path_on_server);
                     error_log("Archivo eliminado físicamente: " . $file_path_on_server);
                 } else {
                     error_log("Advertencia: Archivo físico no encontrado para eliminar: " . $file_path_on_server);
@@ -151,7 +190,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // --- Obtener todos los documentos para mostrar en la tabla ---
-if ($db) {
+if ($db) { // $db ya está definida.
     try {
         $stmt_documentos = $db->query("
             SELECT d.*, v.marca, v.modelo, v.placas, u.nombre as subido_por_nombre
@@ -189,6 +228,8 @@ if ($db) {
     $nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
     $rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
     require_once '../app/includes/navbar.php';
+    ?>
+    <?php require_once '../app/includes/alert_banner.php'; // Incluir el banner de alertas 
     ?>
 
     <div class="container mt-4">
@@ -343,7 +384,6 @@ if ($db) {
     <script>
         // JavaScript para manejar los modales de cargar/editar documento
         document.addEventListener('DOMContentLoaded', function() {
-            // Inicializar Flatpickr para el campo de fecha de vencimiento
             flatpickr("#fecha_vencimiento", {
                 dateFormat: "Y-m-d",
                 minDate: "today"
@@ -402,7 +442,6 @@ if ($db) {
                 }
             });
 
-            // JavaScript para manejar el modal de eliminar documento
             var deleteDocumentModal = document.getElementById('deleteDocumentModal');
             if (deleteDocumentModal) {
                 deleteDocumentModal.addEventListener('show.bs.modal', function(event) {

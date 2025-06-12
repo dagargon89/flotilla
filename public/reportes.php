@@ -1,7 +1,53 @@
 <?php
-// public/reportes.php - CÓDIGO COMPLETO Y ACTUALIZADO (Con EVENTO y DESCRIPCION en Reportes)
+// public/reportes.php - CÓDIGO COMPLETO Y CORREGIDO (Error Undefined $db)
 session_start();
 require_once '../app/config/database.php';
+
+// ¡CORRECCIÓN CRÍTICA! Establecer la conexión a la base de datos aquí, al inicio.
+$db = connectDB();
+
+// Fetch current user's detailed status and amonestaciones for banner and logic
+$current_user_estatus_usuario = $_SESSION['user_role'] ?? 'empleado'; // Default, will be overwritten
+$current_user_amonestaciones_count = 0;
+$current_user_recent_amonestaciones_text = ''; // Texto para el banner
+
+if (isset($_SESSION['user_id']) && $db) {
+    try {
+        // Obtener el estatus_usuario del usuario logueado desde la DB (más fiable que la sesión sola)
+        $stmt_user_full_status = $db->prepare("SELECT estatus_usuario FROM usuarios WHERE id = :user_id");
+        $stmt_user_full_status->bindParam(':user_id', $_SESSION['user_id']);
+        $stmt_user_full_status->execute();
+        $user_full_status_result = $stmt_user_full_status->fetch(PDO::FETCH_ASSOC);
+        if ($user_full_status_result) {
+            $current_user_estatus_usuario = $user_full_status_result['estatus_usuario'];
+            $_SESSION['user_estatus_usuario'] = $current_user_estatus_usuario; // Actualizar la sesión
+        }
+
+        // Si el usuario está 'amonestado', obtener los detalles de las amonestaciones para el banner
+        if ($current_user_estatus_usuario === 'amonestado') {
+            $stmt_amonestaciones = $db->prepare("
+                SELECT COUNT(*) as total_count,
+                       GROUP_CONCAT(CONCAT(DATE_FORMAT(fecha_amonestacion, '%d/%m'), ' (', tipo_amonestacion, ')') ORDER BY fecha_amonestacion DESC SEPARATOR '; ') AS recent_descriptions
+                FROM amonestaciones
+                WHERE usuario_id = :user_id
+                LIMIT 3
+            ");
+            $stmt_amonestaciones->bindParam(':user_id', $_SESSION['user_id']);
+            $stmt_amonestaciones->execute();
+            $amonestacion_data = $stmt_amonestaciones->fetch(PDO::FETCH_ASSOC);
+
+            if ($amonestacion_data) {
+                $current_user_amonestaciones_count = $amonestacion_data['total_count'];
+                $current_user_recent_amonestaciones_text = $amonestacion_data['recent_descriptions'] ?: 'Ninguna reciente.';
+            }
+        }
+    } catch (PDOException $e) {
+        error_log("Error al obtener estatus de usuario/amonestaciones para banner: " . $e->getMessage());
+        $current_user_estatus_usuario = 'activo';
+        $error_message = 'Error al cargar tu estatus o amonestaciones. Contacta al administrador.';
+    }
+}
+
 
 // **VERIFICACIÓN DE ROL:**
 // Solo 'flotilla_manager' y 'admin' pueden acceder a esta página de reportes.
@@ -13,18 +59,17 @@ if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] !== 'flotilla_manage
 $nombre_usuario_sesion = $_SESSION['user_name'];
 $rol_usuario_sesion = $_SESSION['user_role'];
 
-$error_message = '';
-$db = connectDB();
+$error_message = $error_message ?? ''; // Mantener el error si ya viene del bloque de amonestaciones
 
 // --- Variables para los filtros ---
-$filter_start_date = $_GET['start_date'] ?? date('Y-m-01'); // Por defecto, inicio del mes actual
-$filter_end_date = $_GET['end_date'] ?? date('Y-m-t');     // Por defecto, fin del mes actual
+$filter_start_date = $_GET['start_date'] ?? date('Y-m-01');
+$filter_end_date = $_GET['end_date'] ?? date('Y-m-t');
 $filter_vehiculo_id = filter_var($_GET['vehiculo_id'] ?? null, FILTER_VALIDATE_INT);
 $filter_estatus_solicitud = $_GET['estatus_solicitud'] ?? '';
 
 // Obtener lista de vehículos para el filtro
 $vehiculos_para_filtro = [];
-if ($db) {
+if ($db) { // $db ya está definida.
     try {
         $stmt_veh_filtro = $db->query("SELECT id, marca, modelo, placas FROM vehiculos ORDER BY marca, modelo");
         $vehiculos_para_filtro = $stmt_veh_filtro->fetchAll(PDO::FETCH_ASSOC);
@@ -42,9 +87,9 @@ $report_data = [
     'detalle_solicitudes_filtradas' => []
 ];
 
-if ($db) {
+if ($db) { // $db ya está definida.
     try {
-        // Reporte 1: Vehículos por Estatus (NO afectado por filtros de fecha/solicitud, es un conteo general)
+        // Reporte 1: Vehículos por Estatus
         $stmt = $db->query("SELECT estatus, COUNT(*) as count FROM vehiculos GROUP BY estatus");
         $report_data['vehiculos_por_estatus'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -52,7 +97,6 @@ if ($db) {
         $start_datetime = $filter_start_date . ' 00:00:00';
         $end_datetime = $filter_end_date . ' 23:59:59';
 
-        // Parámetros comunes para solicitudes y mantenimientos
         $common_params = [
             ':start_date' => $start_datetime,
             ':end_date' => $end_datetime
@@ -151,8 +195,8 @@ if ($db) {
                 u.nombre AS usuario_nombre,
                 s.fecha_salida_solicitada,
                 s.fecha_regreso_solicitada,
-                s.evento,             /* <<-- NUEVO */
-                s.descripcion,        /* <<-- RENOMBRADO */
+                s.evento,
+                s.descripcion,
                 s.destino,
                 s.estatus_solicitud,
                 v.marca,
@@ -209,6 +253,8 @@ $report_data_json = json_encode($report_data);
     $nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
     $rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
     require_once '../app/includes/navbar.php';
+    ?>
+    <?php require_once '../app/includes/alert_banner.php'; // Incluir el banner de alertas 
     ?>
 
     <div class="container mt-4">
@@ -613,8 +659,8 @@ $report_data_json = json_encode($report_data);
                         row.usuario_nombre,
                         `"${new Date(row.fecha_salida_solicitada).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}"`,
                         `"${new Date(row.fecha_regreso_solicitada).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}"`,
-                        `"${row.evento.replace(/"/g, '""')}"`, // Escapar comillas dobles
-                        `"${row.descripcion.replace(/"/g, '""')}"`, // Escapar comillas dobles
+                        `"${row.evento.replace(/"/g, '""')}"`,
+                        `"${row.descripcion.replace(/"/g, '""')}"`,
                         `"${row.destino.replace(/"/g, '""')}"`,
                         `"${vehiculoAsignado.replace(/"/g, '""')}"`,
                         `"${row.estatus_solicitud.charAt(0).toUpperCase() + row.estatus_solicitud.slice(1)}"`,

@@ -1,11 +1,62 @@
 <?php
-// public/detalle_vehiculo.php - CÓDIGO COMPLETO Y CORREGIDO (Error 'proposito' y campos Evento/Descripcion)
+// public/detalle_vehiculo.php - CÓDIGO COMPLETO Y REVISADO (¡Verificación Exhaustiva de Llaves y Sintaxis!)
 session_start();
 require_once '../app/config/database.php';
 
+// ¡CORRECCIÓN CRÍTICA! Establecer la conexión a la base de datos aquí, al inicio.
+$db = connectDB();
+
+// Fetch current user's detailed status and amonestaciones for banner and logic
+$current_user_estatus_usuario = $_SESSION['user_role'] ?? 'empleado'; // Default, will be overwritten
+$current_user_amonestaciones_count = 0;
+$current_user_recent_amonestaciones_text = ''; // Texto para el banner
+
+if (isset($_SESSION['user_id']) && $db) {
+    try {
+        // Obtener el estatus_usuario del usuario logueado desde la DB (más fiable que la sesión sola)
+        $stmt_user_full_status = $db->prepare("SELECT estatus_usuario FROM usuarios WHERE id = :user_id");
+        $stmt_user_full_status->bindParam(':user_id', $_SESSION['user_id']);
+        $stmt_user_full_status->execute();
+        $user_full_status_result = $stmt_user_full_status->fetch(PDO::FETCH_ASSOC);
+        if ($user_full_status_result) {
+            $current_user_estatus_usuario = $user_full_status_result['estatus_usuario'];
+            $_SESSION['user_estatus_usuario'] = $current_user_estatus_usuario; // Actualizar la sesión
+        }
+
+        // Si el usuario está 'amonestado', obtener los detalles de las amonestaciones para el banner
+        if ($current_user_estatus_usuario === 'amonestado') {
+            $stmt_amonestaciones = $db->prepare("
+                SELECT COUNT(*) as total_count,
+                       GROUP_CONCAT(CONCAT(DATE_FORMAT(fecha_amonestacion, '%d/%m'), ' (', tipo_amonestacion, ')') ORDER BY fecha_amonestacion DESC SEPARATOR '; ') AS recent_descriptions
+                FROM amonestaciones
+                WHERE usuario_id = :user_id
+                LIMIT 3
+            ");
+            $stmt_amonestaciones->bindParam(':user_id', $_SESSION['user_id']);
+            $stmt_amonestaciones->execute();
+            $amonestacion_data = $stmt_amonestaciones->fetch(PDO::FETCH_ASSOC);
+
+            if ($amonestacion_data) {
+                $current_user_amonestaciones_count = $amonestacion_data['total_count'];
+                $current_user_recent_amonestaciones_text = $amonestacion_data['recent_descriptions'] ?: 'Ninguna reciente.';
+            }
+        }
+    } catch (PDOException $e) {
+        error_log("Error al obtener estatus de usuario/amonestaciones para banner: " . $e->getMessage());
+        $current_user_estatus_usuario = 'activo';
+        $error_message = 'Error al cargar tu estatus o amonestaciones. Contacta al administrador.';
+    }
+}
+
+
 // **VERIFICACIÓN DE ROL:**
 // Solo 'flotilla_manager' y 'admin' pueden acceder a esta página.
-if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] !== 'flotilla_manager' && $_SESSION['user_role'] !== 'admin')) {
+if (!isset($_SESSION['user_id'])) { // Si no hay sesión, redirigir
+    header('Location: index.php');
+    exit();
+}
+// Ahora verificamos el rol después de asegurar que $_SESSION['user_role'] está disponible
+if ($_SESSION['user_role'] !== 'flotilla_manager' && $_SESSION['user_role'] !== 'admin') {
     header('Location: dashboard.php'); // Redirige al dashboard si no tiene permisos
     exit();
 }
@@ -13,10 +64,10 @@ if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] !== 'flotilla_manage
 $nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
 $rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
 
-$error_message = '';
+// La variable $error_message ya puede venir del bloque de amonestaciones, si no, se inicializa aquí
+$error_message = $error_message ?? '';
 $vehiculo_id = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
 
-$db = connectDB();
 $vehiculo = null;
 $solicitudes_historicas = [];
 $mantenimientos_historicos = [];
@@ -24,8 +75,8 @@ $documentos_vehiculo = [];
 
 if (!$vehiculo_id) {
     $error_message = 'ID de vehículo no proporcionado o inválido.';
-} else {
-    if ($db) {
+} else { // Abre el ELSE para cuando $vehiculo_id es válido
+    if ($db) { // Abre el IF para la conexión a la base de datos
         try {
             // 1. Obtener datos generales del vehículo
             $stmt_vehiculo = $db->prepare("SELECT * FROM vehiculos WHERE id = :vehiculo_id");
@@ -35,7 +86,7 @@ if (!$vehiculo_id) {
 
             if (!$vehiculo) {
                 $error_message = 'Vehículo no encontrado.';
-            } else {
+            } else { // Abre el ELSE para cuando el vehículo es encontrado
                 // 2. Obtener historial de solicitudes y uso para este vehículo
                 $stmt_solicitudes = $db->prepare("
                     SELECT
@@ -43,8 +94,8 @@ if (!$vehiculo_id) {
                         u.nombre AS usuario_nombre,
                         s.fecha_salida_solicitada,
                         s.fecha_regreso_solicitada,
-                        s.evento,             /* <<-- AÑADIDO: Campo evento */
-                        s.descripcion,        /* <<-- CORREGIDO: 'proposito' ahora es 'descripcion' */
+                        s.evento,
+                        s.descripcion,
                         s.destino,
                         s.estatus_solicitud,
                         s.observaciones_aprobacion,
@@ -79,15 +130,15 @@ if (!$vehiculo_id) {
                 $stmt_documentos->bindParam(':vehiculo_id', $vehiculo_id);
                 $stmt_documentos->execute();
                 $documentos_vehiculo = $stmt_documentos->fetchAll(PDO::FETCH_ASSOC);
-            }
+            } // Cierra el ELSE para cuando el vehículo es encontrado
         } catch (PDOException $e) {
             error_log("Error al cargar detalle de vehículo: " . $e->getMessage());
             $error_message = 'Ocurrió un error al cargar los detalles del vehículo: ' . $e->getMessage();
         }
-    } else {
+    } else { // Cierra el IF para la conexión a la base de datos (si $db es null)
         $error_message = 'No se pudo conectar a la base de datos.';
     }
-}
+} // Cierra el ELSE para cuando $vehiculo_id es válido
 ?>
 
 <!DOCTYPE html>
@@ -106,6 +157,8 @@ if (!$vehiculo_id) {
     $nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
     $rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
     require_once '../app/includes/navbar.php';
+    ?>
+    <?php require_once '../app/includes/alert_banner.php'; // Incluir el banner de alertas 
     ?>
 
     <div class="container mt-4">
@@ -389,7 +442,7 @@ if (!$vehiculo_id) {
             </div>
 
             <div class="modal fade" id="addEditVehicleModal" tabindex="-1" aria-labelledby="addEditVehicleModalLabel" aria-hidden="true">
-                <div class="modal-dialog">
+                <div class="modal-dialog modal-lg">
                     <div class="modal-content">
                         <div class="modal-header">
                             <h5 class="modal-title" id="addEditVehicleModalLabel"></h5>
@@ -506,7 +559,13 @@ if (!$vehiculo_id) {
                             form.reset();
                             estatusField.style.display = 'none';
 
-                            if (action === 'edit') {
+                            if (action === 'add') {
+                                modalTitle.textContent = 'Agregar Nuevo Vehículo';
+                                modalActionInput.value = 'add';
+                                submitBtn.textContent = 'Guardar Vehículo';
+                                submitBtn.className = 'btn btn-primary';
+                                vehicleIdInput.value = '';
+                            } else if (action === 'edit') {
                                 modalTitle.textContent = 'Editar Vehículo';
                                 modalActionInput.value = 'edit';
                                 submitBtn.textContent = 'Actualizar Vehículo';
@@ -528,7 +587,6 @@ if (!$vehiculo_id) {
                         });
                     }
 
-                    // Si también se necesita el modal de eliminar vehículo en esta página
                     var deleteVehicleModal = document.getElementById('deleteVehicleModal');
                     if (deleteVehicleModal) {
                         deleteVehicleModal.addEventListener('show.bs.modal', function(event) {

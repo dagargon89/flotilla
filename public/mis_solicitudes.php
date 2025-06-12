@@ -1,7 +1,53 @@
 <?php
-// public/mis_solicitudes.php - CÓDIGO COMPLETO Y CORREGIDO (ÚLTIMA VERSIÓN)
+// public/mis_solicitudes.php - CÓDIGO COMPLETO Y CORREGIDO (Error Undefined $db y Bloqueo Amonestado)
 session_start();
 require_once '../app/config/database.php';
+
+// ¡CORRECCIÓN CRÍTICA! Establecer la conexión a la base de datos aquí, al inicio.
+$db = connectDB();
+
+// Fetch current user's detailed status and amonestaciones for banner and logic
+$current_user_estatus_usuario = $_SESSION['user_role'] ?? 'empleado'; // Default, will be overwritten
+$current_user_amonestaciones_count = 0;
+$current_user_recent_amonestaciones_text = ''; // Texto para el banner
+
+if (isset($_SESSION['user_id']) && $db) {
+    try {
+        // Obtener el estatus_usuario del usuario logueado desde la DB (más fiable que la sesión sola)
+        $stmt_user_full_status = $db->prepare("SELECT estatus_usuario FROM usuarios WHERE id = :user_id");
+        $stmt_user_full_status->bindParam(':user_id', $_SESSION['user_id']);
+        $stmt_user_full_status->execute();
+        $user_full_status_result = $stmt_user_full_status->fetch(PDO::FETCH_ASSOC);
+        if ($user_full_status_result) {
+            $current_user_estatus_usuario = $user_full_status_result['estatus_usuario'];
+            $_SESSION['user_estatus_usuario'] = $current_user_estatus_usuario; // Actualizar la sesión
+        }
+
+        // Si el usuario está 'amonestado', obtener los detalles de las amonestaciones para el banner
+        if ($current_user_estatus_usuario === 'amonestado') {
+            $stmt_amonestaciones = $db->prepare("
+                SELECT COUNT(*) as total_count,
+                       GROUP_CONCAT(CONCAT(DATE_FORMAT(fecha_amonestacion, '%d/%m'), ' (', tipo_amonestacion, ')') ORDER BY fecha_amonestacion DESC SEPARATOR '; ') AS recent_descriptions
+                FROM amonestaciones
+                WHERE usuario_id = :user_id
+                LIMIT 3
+            ");
+            $stmt_amonestaciones->bindParam(':user_id', $_SESSION['user_id']);
+            $stmt_amonestaciones->execute();
+            $amonestacion_data = $stmt_amonestaciones->fetch(PDO::FETCH_ASSOC);
+
+            if ($amonestacion_data) {
+                $current_user_amonestaciones_count = $amonestacion_data['total_count'];
+                $current_user_recent_amonestaciones_text = $amonestacion_data['recent_descriptions'] ?: 'Ninguna reciente.';
+            }
+        }
+    } catch (PDOException $e) {
+        error_log("Error al obtener estatus de usuario/amonestaciones para banner: " . $e->getMessage());
+        $current_user_estatus_usuario = 'activo';
+        $error_message = 'Error al cargar tu estatus o amonestaciones. Contacta al administrador.';
+    }
+}
+
 
 // Verificar si el usuario está logueado
 if (!isset($_SESSION['user_id'])) {
@@ -14,8 +60,8 @@ $nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
 $rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
 
 $success_message = '';
-$error_message = '';
-$db = connectDB();
+$error_message = $error_message ?? ''; // Mantener el error si ya viene del bloque de amonestaciones
+
 $solicitudes_usuario = [];
 
 // Ruta base para guardar las imágenes (FUERA DE PUBLIC_HTML POR SEGURIDAD)
@@ -33,7 +79,14 @@ if (!is_writable($upload_dir)) {
 
 // --- Lógica para procesar las acciones de Salida/Regreso ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_uso'])) {
-    $action_uso = $_POST['action_uso'] ?? ''; // 'marcar_salida', 'marcar_regreso'
+    // Bloquear si el usuario está suspendido O amonestado
+    if ($current_user_estatus_usuario === 'suspendido' || $current_user_estatus_usuario === 'amonestado') {
+        $error_message = 'No puedes realizar acciones de vehículo porque tu cuenta está ' . htmlspecialchars(ucfirst($current_user_estatus_usuario)) . '. Contacta al administrador.';
+        header('Location: mis_solicitudes.php?error=' . urlencode($error_message)); // Redirigir para mostrar el error
+        exit();
+    }
+
+    $action_uso = $_POST['action_uso'] ?? '';
     $solicitud_id = filter_var($_POST['solicitud_id'] ?? null, FILTER_VALIDATE_INT);
     $kilometraje = filter_var($_POST['kilometraje'] ?? null, FILTER_VALIDATE_INT);
     $nivel_combustible = filter_var($_POST['nivel_combustible'] ?? null, FILTER_VALIDATE_FLOAT);
@@ -54,7 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_uso'])) {
             $db->beginTransaction();
 
             // Lógica para subir las fotos
-            if (!empty($uploaded_files['name'][0])) { // Verifica si al menos una foto fue subida
+            if (!empty($uploaded_files['name'][0])) {
                 foreach ($uploaded_files['name'] as $key => $name) {
                     $tmp_name = $uploaded_files['tmp_name'][$key];
                     $error_code = $uploaded_files['error'][$key];
@@ -220,13 +273,16 @@ if (isset($_GET['error'])) {
     $rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
     require_once '../app/includes/navbar.php';
     ?>
+    <?php require_once '../app/includes/alert_banner.php'; // Incluir el banner de alertas 
+    ?>
 
     <div class="container mt-4">
         <h1 class="mb-4">Mis Solicitudes y Historial de Uso</h1>
 
         <?php if (!empty($success_message)): ?>
             <div class="alert alert-success" role="alert">
-                <?php echo $success_message; ?> </div>
+                <?php echo $success_message; ?>
+            </div>
         <?php endif; ?>
 
         <?php if (!empty($error_message)): ?>
@@ -301,7 +357,9 @@ if (isset($_GET['error'])) {
                                     // Determinar qué botón mostrar según el estatus
                                     if ($solicitud['estatus_solicitud'] === 'aprobada' && empty($solicitud['historial_id'])):
                                     ?>
-                                        <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#useVehicleModal"
+                                        <button type="button" class="btn btn-primary btn-sm"
+                                            <?php echo ($current_user_estatus_usuario === 'suspendido' || $current_user_estatus_usuario === 'amonestado') ? 'disabled' : ''; ?>
+                                            data-bs-toggle="modal" data-bs-target="#useVehicleModal"
                                             data-action="marcar_salida"
                                             data-solicitud-id="<?php echo htmlspecialchars($solicitud['solicitud_id']); ?>"
                                             data-vehiculo-id="<?php echo htmlspecialchars($solicitud['vehiculo_id']); ?>"
@@ -311,7 +369,9 @@ if (isset($_GET['error'])) {
                                         </button>
                                     <?php elseif ($solicitud['estatus_solicitud'] === 'en_curso' && !empty($solicitud['historial_id'])):
                                     ?>
-                                        <button type="button" class="btn btn-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#useVehicleModal"
+                                        <button type="button" class="btn btn-secondary btn-sm"
+                                            <?php echo ($current_user_estatus_usuario === 'suspendido' || $current_user_estatus_usuario === 'amonestado') ? 'disabled' : ''; ?>
+                                            data-bs-toggle="modal" data-bs-target="#useVehicleModal"
                                             data-action="marcar_regreso"
                                             data-solicitud-id="<?php echo htmlspecialchars($solicitud['solicitud_id']); ?>"
                                             data-vehiculo-id="<?php echo htmlspecialchars($solicitud['vehiculo_id']); ?>"
@@ -525,7 +585,7 @@ if (isset($_GET['error'])) {
                     day: 'numeric',
                     hour: '2-digit',
                     minute: '2-digit',
-                    hour12: true // Para que te dé AM/PM
+                    hour12: true
                 };
                 return date.toLocaleString('es-MX', options);
             }
@@ -565,7 +625,7 @@ if (isset($_GET['error'])) {
                         statusBadge.classList.add('bg-info');
                         break;
                 }
-                document.getElementById('detailObservacionesAprobacion').textContent = button.getAttribute('data-observaciones-aprobacion'); // Ya usa || 'N/A' en PHP si es nulo
+                document.getElementById('detailObservacionesAprobacion').textContent = button.getAttribute('data-observaciones-aprobacion');
 
                 // Detalles de Salida
                 var historialId = button.getAttribute('data-historial-id');

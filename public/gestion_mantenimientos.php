@@ -1,23 +1,67 @@
 <?php
-// public/gestion_mantenimientos.php
+// public/gestion_mantenimientos.php - CÓDIGO COMPLETO Y CORREGIDO (Error Undefined $db y Rol Admin)
 session_start();
 require_once '../app/config/database.php';
 
+// ¡CORRECCIÓN CRÍTICA! Establecer la conexión a la base de datos aquí, al inicio.
+$db = connectDB();
+
+// Fetch current user's detailed status and amonestaciones for banner and logic
+$current_user_estatus_usuario = $_SESSION['user_role'] ?? 'empleado'; // Default, will be overwritten
+$current_user_amonestaciones_count = 0;
+$current_user_recent_amonestaciones_text = ''; // Texto para el banner
+
+if (isset($_SESSION['user_id']) && $db) {
+    try {
+        // Obtener el estatus_usuario del usuario logueado desde la DB (más fiable que la sesión sola)
+        $stmt_user_full_status = $db->prepare("SELECT estatus_usuario FROM usuarios WHERE id = :user_id");
+        $stmt_user_full_status->bindParam(':user_id', $_SESSION['user_id']);
+        $stmt_user_full_status->execute();
+        $user_full_status_result = $stmt_user_full_status->fetch(PDO::FETCH_ASSOC);
+        if ($user_full_status_result) {
+            $current_user_estatus_usuario = $user_full_status_result['estatus_usuario'];
+            $_SESSION['user_estatus_usuario'] = $current_user_estatus_usuario; // Actualizar la sesión
+        }
+
+        // Si el usuario está 'amonestado', obtener los detalles de las amonestaciones para el banner
+        if ($current_user_estatus_usuario === 'amonestado') {
+            $stmt_amonestaciones = $db->prepare("
+                SELECT COUNT(*) as total_count,
+                       GROUP_CONCAT(CONCAT(DATE_FORMAT(fecha_amonestacion, '%d/%m'), ' (', tipo_amonestacion, ')') ORDER BY fecha_amonestacion DESC SEPARATOR '; ') AS recent_descriptions
+                FROM amonestaciones
+                WHERE usuario_id = :user_id
+                LIMIT 3
+            ");
+            $stmt_amonestaciones->bindParam(':user_id', $_SESSION['user_id']);
+            $stmt_amonestaciones->execute();
+            $amonestacion_data = $stmt_amonestaciones->fetch(PDO::FETCH_ASSOC);
+
+            if ($amonestacion_data) {
+                $current_user_amonestaciones_count = $amonestacion_data['total_count'];
+                $current_user_recent_amonestaciones_text = $amonestacion_data['recent_descriptions'] ?: 'Ninguna reciente.';
+            }
+        }
+    } catch (PDOException $e) {
+        error_log("Error al obtener estatus de usuario/amonestaciones para banner: " . $e->getMessage());
+        $current_user_estatus_usuario = 'activo';
+        $error_message = 'Error al cargar tu estatus o amonestaciones. Contacta al administrador.';
+    }
+}
+
+
 // **VERIFICACIÓN DE ROL:**
-// Solo 'flotilla_manager' y 'admin' pueden acceder a esta página.
-if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] !== 'flotilla_manager' && $_SESSION['user_role'] !== 'admin')) {
+// Solo 'admin' puede acceder a esta página (corregido de la versión anterior).
+if (!isset($_SESSION['user_id']) || $_SESSION['user_role'] !== 'admin') {
     header('Location: dashboard.php'); // Redirige al dashboard si no tiene permisos
     exit();
 }
 
 $nombre_usuario_sesion = $_SESSION['user_name'];
 $rol_usuario_sesion = $_SESSION['user_role'];
-$nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
-$rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
 
 $success_message = '';
-$error_message = '';
-$db = connectDB();
+$error_message = $error_message ?? ''; // Mantener el error si ya viene del bloque de amonestaciones
+
 $mantenimientos = []; // Para guardar la lista de mantenimientos
 $vehiculos_flotilla = []; // Para el dropdown de vehículos en los modales
 
@@ -31,7 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $tipo_mantenimiento = trim($_POST['tipo_mantenimiento'] ?? '');
             $fecha_mantenimiento = trim($_POST['fecha_mantenimiento'] ?? '');
             $kilometraje_mantenimiento = filter_var($_POST['kilometraje_mantenimiento'] ?? '', FILTER_VALIDATE_INT);
-            $costo = filter_var($_POST['costo'] ?? null, FILTER_VALIDATE_FLOAT, FILTER_NULL_ON_FAILURE); // Permite null
+            $costo = filter_var($_POST['costo'] ?? null, FILTER_VALIDATE_FLOAT, FILTER_NULL_ON_FAILURE);
             $taller = trim($_POST['taller'] ?? '');
             $observaciones = trim($_POST['observaciones'] ?? '');
             $proximo_mantenimiento_km = filter_var($_POST['proximo_mantenimiento_km'] ?? null, FILTER_VALIDATE_INT, FILTER_NULL_ON_FAILURE);
@@ -41,10 +85,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception("Por favor, completa los campos obligatorios para agregar el mantenimiento (vehículo, tipo, fecha, kilometraje).");
             }
 
-            // Asegurar que las fechas vacías se guarden como NULL
             $proximo_mantenimiento_fecha = empty($proximo_mantenimiento_fecha) ? NULL : $proximo_mantenimiento_fecha;
 
-            $db->beginTransaction(); // Inicia la transacción
+            $db->beginTransaction();
 
             $stmt = $db->prepare("INSERT INTO mantenimientos (vehiculo_id, tipo_mantenimiento, fecha_mantenimiento, kilometraje_mantenimiento, costo, taller, observaciones, proximo_mantenimiento_km, proximo_mantenimiento_fecha) VALUES (:vehiculo_id, :tipo_mantenimiento, :fecha_mantenimiento, :kilometraje_mantenimiento, :costo, :taller, :observaciones, :proximo_mantenimiento_km, :proximo_mantenimiento_fecha)");
             $stmt->bindParam(':vehiculo_id', $vehiculo_id);
@@ -58,16 +101,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->bindParam(':proximo_mantenimiento_fecha', $proximo_mantenimiento_fecha);
             $stmt->execute();
 
-            // Opcional: Actualizar el kilometraje actual del vehículo si este mantenimiento es el más reciente
-            // Podrías hacer una consulta para ver si este es el KM más alto registrado para el vehículo
             $stmt_update_veh_km = $db->prepare("UPDATE vehiculos SET kilometraje_actual = GREATEST(kilometraje_actual, :new_km) WHERE id = :vehiculo_id");
             $stmt_update_veh_km->bindParam(':new_km', $kilometraje_mantenimiento);
             $stmt_update_veh_km->bindParam(':vehiculo_id', $vehiculo_id);
             $stmt_update_veh_km->execute();
 
-            $db->commit(); // Confirma la transacción
+            $db->commit();
             $success_message = 'Mantenimiento registrado con éxito.';
-
         } elseif ($action === 'edit') {
             $id = filter_var($_POST['id'] ?? '', FILTER_VALIDATE_INT);
             $vehiculo_id = filter_var($_POST['vehiculo_id'] ?? '', FILTER_VALIDATE_INT);
@@ -86,7 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $proximo_mantenimiento_fecha = empty($proximo_mantenimiento_fecha) ? NULL : $proximo_mantenimiento_fecha;
 
-            $db->beginTransaction(); // Inicia la transacción
+            $db->beginTransaction();
 
             $stmt = $db->prepare("UPDATE mantenimientos SET vehiculo_id = :vehiculo_id, tipo_mantenimiento = :tipo_mantenimiento, fecha_mantenimiento = :fecha_mantenimiento, kilometraje_mantenimiento = :kilometraje_mantenimiento, costo = :costo, taller = :taller, observaciones = :observaciones, proximo_mantenimiento_km = :proximo_mantenimiento_km, proximo_mantenimiento_fecha = :proximo_mantenimiento_fecha WHERE id = :id");
             $stmt->bindParam(':vehiculo_id', $vehiculo_id);
@@ -101,31 +141,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->bindParam(':id', $id);
             $stmt->execute();
 
-            // Opcional: Actualizar el kilometraje actual del vehículo si este mantenimiento es el más reciente
             $stmt_update_veh_km = $db->prepare("UPDATE vehiculos SET kilometraje_actual = GREATEST(kilometraje_actual, :new_km) WHERE id = :vehiculo_id");
             $stmt_update_veh_km->bindParam(':new_km', $kilometraje_mantenimiento);
             $stmt_update_veh_km->bindParam(':vehiculo_id', $vehiculo_id);
             $stmt_update_veh_km->execute();
 
-            $db->commit(); // Confirma la transacción
+            $db->commit();
             $success_message = 'Mantenimiento actualizado con éxito.';
-
         } elseif ($action === 'delete') {
             $id = filter_var($_POST['id'] ?? '', FILTER_VALIDATE_INT);
             if ($id === false) {
                 throw new Exception("ID de mantenimiento inválido para eliminar.");
             }
 
-            $db->beginTransaction(); // Inicia la transacción
+            $db->beginTransaction();
             $stmt = $db->prepare("DELETE FROM mantenimientos WHERE id = :id");
             $stmt->bindParam(':id', $id);
             $stmt->execute();
-            $db->commit(); // Confirma la transacción
+            $db->commit();
             $success_message = 'Mantenimiento eliminado con éxito.';
         }
-
     } catch (Exception $e) {
-        if ($db->inTransaction()) { // Si hay una transacción abierta, la revierte
+        if ($db->inTransaction()) {
             $db->rollBack();
         }
         $error_message = 'Error: ' . $e->getMessage();
@@ -147,7 +184,6 @@ if ($db) {
         // Obtener todos los vehículos para el dropdown en los modales
         $stmt_vehiculos_flotilla = $db->query("SELECT id, marca, modelo, placas FROM vehiculos ORDER BY marca, modelo");
         $vehiculos_flotilla = $stmt_vehiculos_flotilla->fetchAll(PDO::FETCH_ASSOC);
-
     } catch (PDOException $e) {
         error_log("Error al cargar mantenimientos o vehículos para el formulario: " . $e->getMessage());
         $error_message = 'No se pudieron cargar los datos.';
@@ -157,15 +193,24 @@ if ($db) {
 
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestión de Mantenimientos - Flotilla Interna</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css"> </head>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+</head>
+
 <body>
-<?php require_once '../app/includes/navbar.php'; // Incluir la barra de navegación ?>
+    <?php
+    $nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
+    $rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
+    require_once '../app/includes/navbar.php';
+    ?>
+    <?php require_once '../app/includes/alert_banner.php'; // Incluir el banner de alertas 
+    ?>
 
     <div class="container mt-4">
         <h1 class="mb-4">Gestión de Mantenimientos de Vehículos</h1>
@@ -337,26 +382,25 @@ if ($db) {
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script> <script src="js/main.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="js/main.js"></script>
     <script>
         // JavaScript para manejar los modales de agregar/editar mantenimiento
         document.addEventListener('DOMContentLoaded', function() {
-            // Inicializar Flatpickr para los campos de fecha y hora
             flatpickr("#fecha_mantenimiento", {
                 enableTime: true,
                 dateFormat: "Y-m-dTH:i",
                 defaultDate: new Date()
             });
             flatpickr("#proximo_mantenimiento_fecha", {
-                dateFormat: "Y-m-d", // Solo fecha
+                dateFormat: "Y-m-d",
                 minDate: "today"
             });
 
-
             var addEditMaintenanceModal = document.getElementById('addEditMaintenanceModal');
-            addEditMaintenanceModal.addEventListener('show.bs.modal', function (event) {
-                var button = event.relatedTarget; // Botón que activó el modal
-                var action = button.getAttribute('data-action'); // 'add' o 'edit'
+            addEditMaintenanceModal.addEventListener('show.bs.modal', function(event) {
+                var button = event.relatedTarget;
+                var action = button.getAttribute('data-action');
 
                 var modalTitle = addEditMaintenanceModal.querySelector('#addEditMaintenanceModalLabel');
                 var modalActionInput = addEditMaintenanceModal.querySelector('#modalActionMaintenance');
@@ -364,7 +408,6 @@ if ($db) {
                 var submitBtn = addEditMaintenanceModal.querySelector('#submitMaintenanceBtn');
                 var form = addEditMaintenanceModal.querySelector('form');
 
-                // Resetear el formulario
                 form.reset();
 
                 if (action === 'add') {
@@ -372,17 +415,15 @@ if ($db) {
                     modalActionInput.value = 'add';
                     submitBtn.textContent = 'Guardar Mantenimiento';
                     submitBtn.className = 'btn btn-primary';
-                    maintenanceIdInput.value = ''; // Asegurarse de que el ID esté vacío
-                    // Resetear Flatpickr para "add"
+                    maintenanceIdInput.value = '';
                     flatpickr("#fecha_mantenimiento").setDate(new Date());
-                    flatpickr("#proximo_mantenimiento_fecha").clear(); // Limpiar fecha si existe
+                    flatpickr("#proximo_mantenimiento_fecha").clear();
                 } else if (action === 'edit') {
                     modalTitle.textContent = 'Editar Mantenimiento';
                     modalActionInput.value = 'edit';
                     submitBtn.textContent = 'Actualizar Mantenimiento';
                     submitBtn.className = 'btn btn-info text-white';
 
-                    // Llenar el formulario con los datos del mantenimiento
                     maintenanceIdInput.value = button.getAttribute('data-id');
                     addEditMaintenanceModal.querySelector('#vehiculo_id').value = button.getAttribute('data-vehiculo-id');
                     addEditMaintenanceModal.querySelector('#tipo_mantenimiento').value = button.getAttribute('data-tipo-mantenimiento');
@@ -393,33 +434,35 @@ if ($db) {
                     addEditMaintenanceModal.querySelector('#observaciones_mantenimiento').value = button.getAttribute('data-observaciones');
                     addEditMaintenanceModal.querySelector('#proximo_mantenimiento_km').value = button.getAttribute('data-proximo-mantenimiento-km');
                     addEditMaintenanceModal.querySelector('#proximo_mantenimiento_fecha').value = button.getAttribute('data-proximo-mantenimiento-fecha');
-                    // Asegurar que Flatpickr actualice sus valores al cargar el modal
+
                     flatpickr("#fecha_mantenimiento").setDate(button.getAttribute('data-fecha-mantenimiento'));
                     if (button.getAttribute('data-proximo-mantenimiento-fecha')) {
-                         flatpickr("#proximo_mantenimiento_fecha").setDate(button.getAttribute('data-proximo-mantenimiento-fecha'));
+                        flatpickr("#proximo_mantenimiento_fecha").setDate(button.getAttribute('data-proximo-mantenimiento-fecha'));
                     } else {
                         flatpickr("#proximo_mantenimiento_fecha").clear();
                     }
                 }
             });
 
-            // JavaScript para manejar el modal de eliminar mantenimiento
             var deleteMaintenanceModal = document.getElementById('deleteMaintenanceModal');
-            deleteMaintenanceModal.addEventListener('show.bs.modal', function (event) {
-                var button = event.relatedTarget; // Botón que activó el modal
-                var maintenanceId = button.getAttribute('data-id');
-                var maintenanceType = button.getAttribute('data-tipo');
-                var maintenancePlacas = button.getAttribute('data-placas');
+            if (deleteMaintenanceModal) {
+                deleteMaintenanceModal.addEventListener('show.bs.modal', function(event) {
+                    var button = event.relatedTarget;
+                    var maintenanceId = button.getAttribute('data-id');
+                    var maintenanceType = button.getAttribute('data-tipo');
+                    var maintenancePlacas = button.getAttribute('data-placas');
 
-                var modalMaintenanceId = deleteMaintenanceModal.querySelector('#deleteMaintenanceId');
-                var modalMaintenanceType = deleteMaintenanceModal.querySelector('#deleteMaintenanceType');
-                var modalMaintenancePlacas = deleteMaintenanceModal.querySelector('#deleteMaintenancePlacas');
+                    var modalMaintenanceId = deleteMaintenanceModal.querySelector('#deleteMaintenanceId');
+                    var modalMaintenanceType = deleteMaintenanceModal.querySelector('#deleteMaintenanceType');
+                    var modalMaintenancePlacas = deleteMaintenanceModal.querySelector('#deleteMaintenancePlacas');
 
-                modalMaintenanceId.value = maintenanceId;
-                modalMaintenanceType.textContent = maintenanceType;
-                modalMaintenancePlacas.textContent = maintenancePlacas;
-            });
+                    modalMaintenanceId.value = maintenanceId;
+                    modalMaintenanceType.textContent = maintenanceType;
+                    modalMaintenancePlacas.textContent = maintenancePlacas;
+                });
+            }
         });
     </script>
 </body>
+
 </html>

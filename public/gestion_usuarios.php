@@ -1,22 +1,68 @@
 <?php
-// public/gestion_usuarios.php - CÓDIGO COMPLETO Y ACTUALIZADO (Añadir botón Amonestar en tabla)
+// public/gestion_usuarios.php - CÓDIGO COMPLETO Y CORREGIDO (Error Undefined $db y Lógica de Estatus/Amonestaciones)
 session_start();
 require_once '../app/config/database.php';
+
+// ¡CORRECCIÓN CRÍTICA! Establecer la conexión a la base de datos aquí, al inicio.
+$db = connectDB();
+
+// Fetch current user's detailed status and amonestaciones for banner and logic
+$current_user_estatus_usuario = $_SESSION['user_role'] ?? 'empleado'; // Default, will be overwritten
+$current_user_amonestaciones_count = 0;
+$current_user_recent_amonestaciones_text = ''; // Texto para el banner
+
+if (isset($_SESSION['user_id']) && $db) {
+    try {
+        // Obtener el estatus_usuario del usuario logueado desde la DB (más fiable que la sesión sola)
+        $stmt_user_full_status = $db->prepare("SELECT estatus_usuario FROM usuarios WHERE id = :user_id");
+        $stmt_user_full_status->bindParam(':user_id', $_SESSION['user_id']);
+        $stmt_user_full_status->execute();
+        $user_full_status_result = $stmt_user_full_status->fetch(PDO::FETCH_ASSOC);
+        if ($user_full_status_result) {
+            $current_user_estatus_usuario = $user_full_status_result['estatus_usuario'];
+            $_SESSION['user_estatus_usuario'] = $current_user_estatus_usuario; // Actualizar la sesión
+        }
+
+        // Si el usuario está 'amonestado', obtener los detalles de las amonestaciones para el banner
+        if ($current_user_estatus_usuario === 'amonestado') {
+            $stmt_amonestaciones = $db->prepare("
+                SELECT COUNT(*) as total_count,
+                       GROUP_CONCAT(CONCAT(DATE_FORMAT(fecha_amonestacion, '%d/%m'), ' (', tipo_amonestacion, ')') ORDER BY fecha_amonestacion DESC SEPARATOR '; ') AS recent_descriptions
+                FROM amonestaciones
+                WHERE usuario_id = :user_id
+                LIMIT 3
+            ");
+            $stmt_amonestaciones->bindParam(':user_id', $_SESSION['user_id']);
+            $stmt_amonestaciones->execute();
+            $amonestacion_data = $stmt_amonestaciones->fetch(PDO::FETCH_ASSOC);
+
+            if ($amonestacion_data) {
+                $current_user_amonestaciones_count = $amonestacion_data['total_count'];
+                $current_user_recent_amonestaciones_text = $amonestacion_data['recent_descriptions'] ?: 'Ninguna reciente.';
+            }
+        }
+    } catch (PDOException $e) {
+        error_log("Error al obtener estatus de usuario/amonestaciones para banner: " . $e->getMessage());
+        $current_user_estatus_usuario = 'activo';
+        $error_message = 'Error al cargar tu estatus o amonestaciones. Contacta al administrador.';
+    }
+}
+
 
 // **VERIFICACIÓN DE ROL:**
 // Solo 'admin' puede acceder a esta página.
 if (!isset($_SESSION['user_id']) || $_SESSION['user_role'] !== 'admin') {
-    header('Location: dashboard.php'); // Redirige al dashboard si no es admin
+    header('Location: dashboard.php'); // Redirige al dashboard si no tiene permisos
     exit();
 }
 
-$nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
-$rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
+$nombre_usuario_sesion = $_SESSION['user_name'];
+$rol_usuario_sesion = $_SESSION['user_role'];
 $user_id_sesion = $_SESSION['user_id'];
 
 $success_message = '';
-$error_message = '';
-$db = connectDB();
+$error_message = $error_message ?? ''; // Mantener el error si ya viene del bloque de amonestaciones
+
 $usuarios = []; // Para guardar la lista de usuarios
 $historial_amonestaciones_modal = []; // Para el historial en el modal de detalle
 
@@ -137,6 +183,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt_update_user_status->bindParam(':usuario_id', $usuario_id);
                 $stmt_update_user_status->execute();
             } elseif ($tipo_amonestacion === 'amonestado') { // Si quieres cambiar a 'amonestado' por una amonestación (no suspension)
+                // Solo si el estatus actual es 'activo', para no sobrescribir 'suspendido' si ya lo está
                 $stmt_update_user_status = $db->prepare("UPDATE usuarios SET estatus_usuario = 'amonestado' WHERE id = :usuario_id AND estatus_usuario = 'activo'");
                 $stmt_update_user_status->bindParam(':usuario_id', $usuario_id);
                 $stmt_update_user_status->execute();
@@ -202,6 +249,8 @@ if ($db) {
     $nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
     $rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
     require_once '../app/includes/navbar.php';
+    ?>
+    <?php require_once '../app/includes/alert_banner.php'; // Incluir el banner de alertas 
     ?>
 
     <div class="container mt-4">
@@ -316,7 +365,8 @@ if ($db) {
                                                 Rechazar
                                             </button>
                                         <?php endif; ?>
-                                        <button type="button" class="btn btn-sm btn-warning text-dark" data-bs-toggle="modal" data-bs-target="#addAmonestacionModal" data-user-id="<?php echo $usuario['id']; ?>" data-user-name="<?php echo htmlspecialchars($usuario['nombre']); ?>">
+                                        <button type="button" class="btn btn-sm btn-warning text-dark" data-bs-toggle="modal" data-bs-target="#addAmonestacionModal"
+                                            data-user-id="<?php echo $usuario['id']; ?>" data-user-name="<?php echo htmlspecialchars($usuario['nombre']); ?>">
                                             Amonestar
                                         </button>
                                         <button type="button" class="btn btn-sm btn-secondary" data-bs-toggle="modal" data-bs-target="#viewUserHistoryModal"

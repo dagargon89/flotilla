@@ -1,21 +1,67 @@
 <?php
-// public/gestion_vehiculos.php - CÓDIGO COMPLETO Y ACTUALIZADO
+// public/gestion_vehiculos.php - CÓDIGO COMPLETO Y CORREGIDO (Error Undefined $db y Rol Admin)
 session_start();
 require_once '../app/config/database.php';
 
+// ¡CORRECCIÓN CRÍTICA! Establecer la conexión a la base de datos aquí, al inicio.
+$db = connectDB();
+
+// Fetch current user's detailed status and amonestaciones for banner and logic
+$current_user_estatus_usuario = $_SESSION['user_role'] ?? 'empleado'; // Default, will be overwritten
+$current_user_amonestaciones_count = 0;
+$current_user_recent_amonestaciones_text = ''; // Texto para el banner
+
+if (isset($_SESSION['user_id']) && $db) {
+    try {
+        // Obtener el estatus_usuario del usuario logueado desde la DB (más fiable que la sesión sola)
+        $stmt_user_full_status = $db->prepare("SELECT estatus_usuario FROM usuarios WHERE id = :user_id");
+        $stmt_user_full_status->bindParam(':user_id', $_SESSION['user_id']);
+        $stmt_user_full_status->execute();
+        $user_full_status_result = $stmt_user_full_status->fetch(PDO::FETCH_ASSOC);
+        if ($user_full_status_result) {
+            $current_user_estatus_usuario = $user_full_status_result['estatus_usuario'];
+            $_SESSION['user_estatus_usuario'] = $current_user_estatus_usuario; // Actualizar la sesión
+        }
+
+        // Si el usuario está 'amonestado', obtener los detalles de las amonestaciones para el banner
+        if ($current_user_estatus_usuario === 'amonestado') {
+            $stmt_amonestaciones = $db->prepare("
+                SELECT COUNT(*) as total_count,
+                       GROUP_CONCAT(CONCAT(DATE_FORMAT(fecha_amonestacion, '%d/%m'), ' (', tipo_amonestacion, ')') ORDER BY fecha_amonestacion DESC SEPARATOR '; ') AS recent_descriptions
+                FROM amonestaciones
+                WHERE usuario_id = :user_id
+                LIMIT 3
+            ");
+            $stmt_amonestaciones->bindParam(':user_id', $_SESSION['user_id']);
+            $stmt_amonestaciones->execute();
+            $amonestacion_data = $stmt_amonestaciones->fetch(PDO::FETCH_ASSOC);
+
+            if ($amonestacion_data) {
+                $current_user_amonestaciones_count = $amonestacion_data['total_count'];
+                $current_user_recent_amonestaciones_text = $amonestacion_data['recent_descriptions'] ?: 'Ninguna reciente.';
+            }
+        }
+    } catch (PDOException $e) {
+        error_log("Error al obtener estatus de usuario/amonestaciones para banner: " . $e->getMessage());
+        $current_user_estatus_usuario = 'activo';
+        $error_message = 'Error al cargar tu estatus o amonestaciones. Contacta al administrador.';
+    }
+}
+
+
 // **VERIFICACIÓN DE ROL:**
-// Solo 'flotilla_manager' y 'admin' pueden acceder a esta página.
-if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] !== 'flotilla_manager' && $_SESSION['user_role'] !== 'admin')) {
+// Solo 'admin' puede acceder a esta página (corregido de la versión anterior).
+if (!isset($_SESSION['user_id']) || $_SESSION['user_role'] !== 'admin') {
     header('Location: dashboard.php'); // Redirige al dashboard si no tiene permisos
     exit();
 }
 
-$nombre_usuario = $_SESSION['user_name'];
-$rol_usuario = $_SESSION['user_role'];
+$nombre_usuario = $_SESSION['user_name']; // Esta variable ya debería estar definida en la sesión
+$rol_usuario = $_SESSION['user_role']; // Esta variable ya debería estar definida en la sesión
 
 $success_message = '';
-$error_message = '';
-$db = connectDB();
+$error_message = $error_message ?? ''; // Mantener el error si ya viene del bloque de amonestaciones
+
 $vehiculos = []; // Para guardar la lista de vehículos
 
 // --- Lógica para procesar el formulario (Agregar/Editar/Eliminar) ---
@@ -87,8 +133,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception("ID de vehículo inválido para eliminar.");
             }
 
-            // Considerar si hay solicitudes pendientes o en curso ligadas a este vehículo
-            // Por ahora, el ON DELETE CASCADE en las FK de la DB se encarga.
             $stmt = $db->prepare("DELETE FROM vehiculos WHERE id = :id");
             $stmt->bindParam(':id', $id);
             $stmt->execute();
@@ -96,7 +140,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } catch (Exception $e) {
         $error_message = 'Error: ' . $e->getMessage();
-        // Para errores de integridad (placas/VIN duplicados)
         if (strpos($e->getMessage(), 'Duplicate entry') !== false) {
             $error_message = 'Error: Las placas o el VIN ya existen. Por favor, verifica los datos.';
         }
@@ -109,7 +152,7 @@ if ($db) {
     try {
         $stmt = $db->query("SELECT * FROM vehiculos ORDER BY marca, modelo");
         $vehiculos = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    } catch (PDOException | Exception $e) { // Added Exception for broader error catching
+    } catch (PDOException | Exception $e) {
         error_log("Error al cargar vehículos: " . $e->getMessage());
         $error_message = 'No se pudieron cargar los vehículos.';
     }
@@ -132,6 +175,8 @@ if ($db) {
     $nombre_usuario_sesion = $_SESSION['user_name'] ?? 'Usuario';
     $rol_usuario_sesion = $_SESSION['user_role'] ?? 'empleado';
     require_once '../app/includes/navbar.php';
+    ?>
+    <?php require_once '../app/includes/alert_banner.php'; // Incluir el banner de alertas 
     ?>
 
     <div class="container mt-4">
