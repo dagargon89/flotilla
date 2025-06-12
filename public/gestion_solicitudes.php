@@ -516,7 +516,7 @@ if ($db) {
                         break;
                 }
 
-                document.getElementById('detailObservacionesAprobacion').textContent = button.getAttribute('data-observaciones-aprobacion');
+                document.getElementById('detailObservacionesAprobacion').textContent = button.getAttribute('data-observaciones-aprobacion') || 'Ninguna observación.';
             });
         });
     </script>

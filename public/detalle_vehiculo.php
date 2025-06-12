@@ -89,9 +89,9 @@ if (!$vehiculo_id) {
             } else { // Abre el ELSE para cuando el vehículo es encontrado
                 // 2. Obtener historial de solicitudes y uso para este vehículo
                 $stmt_solicitudes = $db->prepare("
-                    SELECT
+                    SELECT 
                         s.id AS solicitud_id,
-                        u.nombre AS usuario_nombre,
+                        s.usuario_id,
                         s.fecha_salida_solicitada,
                         s.fecha_regreso_solicitada,
                         s.evento,
@@ -99,16 +99,19 @@ if (!$vehiculo_id) {
                         s.destino,
                         s.estatus_solicitud,
                         s.observaciones_aprobacion,
+                        u.nombre AS usuario_nombre,
                         hu.kilometraje_salida,
                         hu.nivel_combustible_salida,
                         hu.fecha_salida_real,
                         hu.observaciones_salida,
-                        hu.fotos_salida_url,
+                        hu.fotos_salida_medidores_url,
+                        hu.fotos_salida_observaciones_url,
                         hu.kilometraje_regreso,
                         hu.nivel_combustible_regreso,
                         hu.fecha_regreso_real,
                         hu.observaciones_regreso,
-                        hu.fotos_regreso_url
+                        hu.fotos_regreso_medidores_url,
+                        hu.fotos_regreso_observaciones_url
                     FROM solicitudes_vehiculos s
                     JOIN usuarios u ON s.usuario_id = u.id
                     LEFT JOIN historial_uso_vehiculos hu ON s.id = hu.solicitud_id
@@ -307,12 +310,27 @@ if (!$vehiculo_id) {
                                                     <p><strong>Nivel Combustible Salida:</strong> <?php echo htmlspecialchars($solicitud['nivel_combustible_salida']); ?>%</p>
                                                     <p><strong>Obs. Salida:</strong> <?php echo htmlspecialchars($solicitud['observaciones_salida'] ?? 'Ninguna.'); ?></p>
                                                     <?php
-                                                    $fotos_salida_urls = json_decode($solicitud['fotos_salida_url'] ?? '[]', true);
+                                                    $fotos_salida_urls = json_decode($solicitud['fotos_salida_medidores_url'] ?? '[]', true);
                                                     if (!empty($fotos_salida_urls)):
                                                     ?>
                                                         <div class="row mb-3">
-                                                            <p><strong>Fotos de Salida:</strong></p>
+                                                            <p><strong>Fotos de Salida (Medidores):</strong></p>
                                                             <?php foreach ($fotos_salida_urls as $url): ?>
+                                                                <div class="col-4 col-md-3 mb-2">
+                                                                    <a href="<?php echo htmlspecialchars($url); ?>" target="_blank">
+                                                                        <img src="<?php echo htmlspecialchars($url); ?>" class="img-fluid rounded shadow-sm" alt="Foto Salida">
+                                                                    </a>
+                                                                </div>
+                                                            <?php endforeach; ?>
+                                                        </div>
+                                                    <?php endif; ?>
+                                                    <?php
+                                                    $fotos_salida_observaciones_urls = json_decode($solicitud['fotos_salida_observaciones_url'] ?? '[]', true);
+                                                    if (!empty($fotos_salida_observaciones_urls)):
+                                                    ?>
+                                                        <div class="row mb-3">
+                                                            <p><strong>Fotos de Salida (Observaciones):</strong></p>
+                                                            <?php foreach ($fotos_salida_observaciones_urls as $url): ?>
                                                                 <div class="col-4 col-md-3 mb-2">
                                                                     <a href="<?php echo htmlspecialchars($url); ?>" target="_blank">
                                                                         <img src="<?php echo htmlspecialchars($url); ?>" class="img-fluid rounded shadow-sm" alt="Foto Salida">
@@ -330,15 +348,30 @@ if (!$vehiculo_id) {
                                                     <p><strong>Nivel Combustible Regreso:</strong> <?php echo htmlspecialchars($solicitud['nivel_combustible_regreso']); ?>%</p>
                                                     <p><strong>Obs. Regreso:</strong> <?php echo htmlspecialchars($solicitud['observaciones_regreso'] ?? 'Ninguna.'); ?></p>
                                                     <?php
-                                                    $fotos_regreso_urls = json_decode($solicitud['fotos_regreso_url'] ?? '[]', true);
-                                                    if (!empty($fotos_regreso_urls)):
+                                                    $fotos_regreso_medidores = json_decode($solicitud['fotos_regreso_medidores_url'] ?? '[]', true);
+                                                    if (!empty($fotos_regreso_medidores)):
                                                     ?>
                                                         <div class="row mb-3">
-                                                            <p><strong>Fotos de Regreso:</strong></p>
-                                                            <?php foreach ($fotos_regreso_urls as $url): ?>
+                                                            <p><strong>Fotos de Regreso (Medidores):</strong></p>
+                                                            <?php foreach ($fotos_regreso_medidores as $url): ?>
                                                                 <div class="col-4 col-md-3 mb-2">
                                                                     <a href="<?php echo htmlspecialchars($url); ?>" target="_blank">
-                                                                        <img src="<?php echo htmlspecialchars($url); ?>" class="img-fluid rounded shadow-sm" alt="Foto Regreso">
+                                                                        <img src="<?php echo htmlspecialchars($url); ?>" class="img-fluid rounded shadow-sm" alt="Foto Regreso Medidores">
+                                                                    </a>
+                                                                </div>
+                                                            <?php endforeach; ?>
+                                                        </div>
+                                                    <?php endif; ?>
+                                                    <?php
+                                                    $fotos_regreso_observaciones = json_decode($solicitud['fotos_regreso_observaciones_url'] ?? '[]', true);
+                                                    if (!empty($fotos_regreso_observaciones)):
+                                                    ?>
+                                                        <div class="row mb-3">
+                                                            <p><strong>Fotos de Regreso (Observaciones):</strong></p>
+                                                            <?php foreach ($fotos_regreso_observaciones as $url): ?>
+                                                                <div class="col-4 col-md-3 mb-2">
+                                                                    <a href="<?php echo htmlspecialchars($url); ?>" target="_blank">
+                                                                        <img src="<?php echo htmlspecialchars($url); ?>" class="img-fluid rounded shadow-sm" alt="Foto Regreso Observaciones">
                                                                     </a>
                                                                 </div>
                                                             <?php endforeach; ?>

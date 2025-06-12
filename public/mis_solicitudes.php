@@ -473,13 +473,22 @@ if (isset($_GET['error'])) {
                                 <small class="form-text text-muted">Sube fotos claras del tablero mostrando el kilometraje y del medidor de combustible (máx. <?php echo ini_get('upload_max_filesize'); ?> por archivo).</small>
                             </div>
                             <div class="mb-3">
-                                <label for="observaciones" class="form-label">Observaciones (detalles, golpes, limpieza)</label>
-                                <textarea class="form-control" id="observaciones" name="observaciones" rows="3"></textarea>
+                                <label for="tiene_observaciones" class="form-label">¿Hay observaciones o detalles que reportar?</label>
+                                <select class="form-control" id="tiene_observaciones" name="tiene_observaciones">
+                                    <option value="no">No</option>
+                                    <option value="si">Sí</option>
+                                </select>
                             </div>
-                            <div class="mb-3">
-                                <label for="fotos_observaciones" class="form-label">Fotos de Evidencia de las Observaciones</label>
-                                <input type="file" class="form-control" id="fotos_observaciones" name="fotos_observaciones[]" accept="image/*" multiple>
-                                <small class="form-text text-muted">Sube fotos que evidencien los detalles mencionados en las observaciones (golpes, limpieza, etc.) (máx. <?php echo ini_get('upload_max_filesize'); ?> por archivo).</small>
+                            <div id="seccion_observaciones" style="display: none;">
+                                <div class="mb-3">
+                                    <label for="observaciones" class="form-label">Observaciones (detalles, golpes, limpieza)</label>
+                                    <textarea class="form-control" id="observaciones" name="observaciones" rows="3"></textarea>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="fotos_observaciones" class="form-label">Fotos de Evidencia de las Observaciones</label>
+                                    <input type="file" class="form-control" id="fotos_observaciones" name="fotos_observaciones[]" accept="image/*" multiple>
+                                    <small class="form-text text-muted">Sube fotos que evidencien los detalles mencionados en las observaciones (golpes, limpieza, etc.) (máx. <?php echo ini_get('upload_max_filesize'); ?> por archivo).</small>
+                                </div>
                             </div>
                         </div>
                         <div class="modal-footer">
@@ -591,6 +600,16 @@ if (isset($_GET['error'])) {
                 }
             });
 
+            // Mostrar/ocultar sección de observaciones según selección
+            document.getElementById('tiene_observaciones').addEventListener('change', function() {
+                var seccionObservaciones = document.getElementById('seccion_observaciones');
+                if (this.value === 'si') {
+                    seccionObservaciones.style.display = 'block';
+                } else {
+                    seccionObservaciones.style.display = 'none';
+                }
+            });
+
             // Función para formatear fechas para la lista y modales (Solución para "Invalid Date" más robusta)
             function formatDateTime(dateTimeString) {
                 // Manejar valores null, cadenas vacías o la fecha "cero" de MySQL
@@ -659,7 +678,7 @@ if (isset($_GET['error'])) {
                         statusBadge.classList.add('bg-info');
                         break;
                 }
-                document.getElementById('detailObservacionesAprobacion').textContent = button.getAttribute('data-observaciones-aprobacion');
+                document.getElementById('detailObservacionesAprobacion').textContent = button.getAttribute('data-observaciones-aprobacion') || 'Ninguna observación.';
 
                 // Detalles de Salida
                 var historialId = button.getAttribute('data-historial-id');
