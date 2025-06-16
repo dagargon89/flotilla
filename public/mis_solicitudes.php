@@ -287,6 +287,20 @@ if (isset($_GET['error'])) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        #vehicle-status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .text-danger {
+            color: #dc3545 !important;
+        }
+        button[disabled] {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+    </style>
 </head>
 
 <body>
@@ -329,6 +343,7 @@ if (isset($_GET['error'])) {
                             <th>Descripción</th>
                             <th>Vehículo Asignado</th>
                             <th>Estatus</th>
+                            <th>Estado Vehículo</th> <!-- Nueva columna para el estado del vehículo -->
                             <th>Acciones</th>
                             <th>Ver Detalles</th>
                         </tr>
@@ -373,6 +388,19 @@ if (isset($_GET['error'])) {
                                     }
                                     ?>
                                     <span class="<?php echo $status_class; ?>"><?php echo htmlspecialchars(ucfirst($solicitud['estatus_solicitud'])); ?></span>
+                                </td>
+                                <td>
+                                    <span id="vehicle-status-<?php echo htmlspecialchars($solicitud['vehiculo_id']); ?>" class="text-nowrap">
+                                        <?php
+                                        // Mostrar estado del vehículo si está disponible
+                                        if (!empty($solicitud['vehiculo_id'])) {
+                                            // Aquí se puede agregar lógica para determinar el estado del vehículo si es necesario
+                                            echo 'Disponible'; // Estado por defecto, cambiar según la lógica
+                                        } else {
+                                            echo 'Sin asignar';
+                                        }
+                                        ?>
+                                    </span>
                                 </td>
                                 <td>
                                     <?php
@@ -803,6 +831,71 @@ if (isset($_GET['error'])) {
                     regresoDetails.style.display = 'none';
                     noRegresoDetails.style.display = 'block';
                 }
+            });
+        });
+
+    // Función para verificar el estado del vehículo
+    function checkVehicleStatus(vehiculoId) {
+        fetch(`api/get_vehiculo_status.php?vehiculo_id=${vehiculoId}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.status) {
+                    const statusElement = document.getElementById(`vehicle-status-${vehiculoId}`);
+                    const buttons = document.querySelectorAll(`button[data-vehiculo-id="${vehiculoId}"]`);
+                    
+                    if (statusElement) {
+                        // Formatear el estado para mostrar
+                        const estadoFormateado = data.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                        statusElement.textContent = estadoFormateado;
+                        
+                        // Actualizar clases visuales según el estado
+                        statusElement.className = ''; // Limpiar clases existentes
+                        if (['en_mantenimiento', 'inactivo', 'en_uso'].includes(data.status)) {
+                            statusElement.classList.add('text-danger');
+                        } else if (data.status === 'activo') {
+                            statusElement.classList.add('text-success');
+                        }
+
+                        // Actualizar todos los botones asociados al vehículo
+                        buttons.forEach(button => {
+                            if (['en_mantenimiento', 'inactivo', 'en_uso'].includes(data.status)) {
+                                button.disabled = true;
+                                button.title = `Vehículo no disponible: ${estadoFormateado}`;
+                                // Agregar clase visual para botones deshabilitados
+                                button.classList.add('btn-disabled');
+                            } else {
+                                button.disabled = false;
+                                button.title = '';
+                                button.classList.remove('btn-disabled');
+                            }
+                        });
+
+                        console.log(`Estado actualizado para vehículo ${vehiculoId}: ${data.status} at ${data.timestamp}`);
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error al verificar el estado del vehículo:', error);
+                const statusElement = document.getElementById(`vehicle-status-${vehiculoId}`);
+                if (statusElement) {
+                    statusElement.textContent = 'Error al verificar estado';
+                    statusElement.classList.add('text-warning');
+                }
+            });
+        }
+
+        // Verificar el estado cada 30 segundos
+        document.addEventListener('DOMContentLoaded', function() {
+            const buttons = document.querySelectorAll('[data-vehiculo-id]');
+            buttons.forEach(button => {
+                const vehiculoId = button.dataset.vehiculoId;
+                checkVehicleStatus(vehiculoId, button);
+                setInterval(() => checkVehicleStatus(vehiculoId, button), 30000);
             });
         });
     </script>
