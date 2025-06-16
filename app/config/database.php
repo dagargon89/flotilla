@@ -1,17 +1,57 @@
 <?php
 // app/config/database.php
 
+// --- INSTRUCCIONES PARA CONFIGURACIÓN DE BASE DE DATOS ---
+// Las credenciales de la base de datos y otras configuraciones sensibles
+// deben gestionarse a través de un archivo .env en la raíz del proyecto.
+//
+// 1. Copia el archivo .env.example a .env (ej: cp .env.example .env).
+// 2. Edita el archivo .env con tus credenciales y configuraciones específicas.
+// 3. Asegúrate de que el archivo .env esté listado en tu .gitignore para
+//    evitar subirlo al repositorio.
+// ---------------------------------------------------------------------
+
 // --- Configuración para mostrar errores en desarrollo ---
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 // -----------------------------------------------------
 
+// --- Carga de variables de entorno desde .env ---
+$dotenv_path = __DIR__ . '/../../.env'; // Ruta al archivo .env en la raíz del proyecto
+
+if (file_exists($dotenv_path)) {
+    $lines = file($dotenv_path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+        if (strpos(trim($line), '#') === 0) { // Ignorar comentarios
+            continue;
+        }
+        list($name, $value) = explode('=', $line, 2);
+        $name = trim($name);
+        $value = trim($value);
+
+        // Remover comillas si existen al inicio y al final del valor
+        if (substr($value, 0, 1) == '"' && substr($value, -1) == '"') {
+            $value = substr($value, 1, -1);
+        } elseif (substr($value, 0, 1) == "'" && substr($value, -1) == "'") {
+            $value = substr($value, 1, -1);
+        }
+
+        if (!array_key_exists($name, $_SERVER) && !array_key_exists($name, $_ENV)) {
+            putenv(sprintf('%s=%s', $name, $value));
+            $_ENV[$name] = $value;
+            $_SERVER[$name] = $value;
+        }
+    }
+}
+// -------------------------------------------------
+
 // Define las constantes para la conexión a la base de datos
-define('DB_HOST', 'localhost'); // El host de tu base de datos (normalmente 'localhost' en XAMPP)
-define('DB_USER', 'david');     // Tu usuario de MySQL (por defecto 'root' en XAMPP)
-define('DB_PASS', 'Comunica25!');         // Tu contraseña de MySQL (por defecto vacía en XAMPP)
-define('DB_NAME', 'flotilla_interna'); // El nombre de la base de datos que creamos
+// Se usarán las variables de entorno si están disponibles, de lo contrario, valores por defecto.
+define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
+define('DB_USER', getenv('DB_USER') ?: 'root');
+define('DB_PASS', getenv('DB_PASS') ?: '');
+define('DB_NAME', getenv('DB_NAME') ?: 'flotilla_interna');
 
 /**
  * Función para establecer la conexión a la base de datos.
@@ -20,7 +60,6 @@ define('DB_NAME', 'flotilla_interna'); // El nombre de la base de datos que crea
 function connectDB() {
     try {
         // Crea una nueva instancia de PDO (PHP Data Objects)
-        // Esto es más seguro y moderno que mysqli_connect()
         $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
         $options = [
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION, // Lanza excepciones en caso de error
@@ -32,12 +71,13 @@ function connectDB() {
     } catch (PDOException $e) {
         // Si hay un error en la conexión, lo mostramos
         error_log("Error de conexión a la base de datos: " . $e->getMessage());
-        // Podrías mostrar un mensaje amigable al usuario o redirigirlo a una página de error.
-        die("Lo sentimos, no podemos conectar con la base de datos en este momento. Inténtalo más tarde.");
+        // En lugar de die(), retornamos null para que el script que llama pueda manejar el error.
+        return null;
     }
 }
 
 // Opcional: Para probar la conexión una vez que tengas este archivo
+// (Asegúrate de tener un archivo .env o que los valores por defecto sean correctos)
 // $db = connectDB();
 // if ($db) {
 //     echo "¡Conexión a la base de datos exitosa!";
