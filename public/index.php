@@ -99,7 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <?php if (!empty($error_message)): ?>
             <div class="alert alert-danger" role="alert">
-                <?php echo $error_message; ?>
+                <?php echo htmlspecialchars($error_message, ENT_QUOTES, 'UTF-8'); ?>
             </div>
         <?php endif; ?>
 
